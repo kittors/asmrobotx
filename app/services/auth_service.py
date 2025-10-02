@@ -1,0 +1,87 @@
+"""认证服务：封装注册、登录等核心业务流程。"""
+
+from sqlalchemy.orm import Session
+
+from app.core.constants import (
+    ACCESS_TOKEN_TYPE,
+    DEFAULT_USER_ROLE,
+    HTTP_STATUS_CONFLICT,
+    HTTP_STATUS_NOT_FOUND,
+    HTTP_STATUS_OK,
+    HTTP_STATUS_UNAUTHORIZED,
+)
+from app.core.exceptions import AppException
+from app.core.responses import create_response
+from app.core.security import create_access_token, get_password_hash, verify_password
+from app.crud.organizations import organization_crud
+from app.crud.roles import role_crud
+from app.crud.users import user_crud
+from app.core.enums import RoleEnum
+from app.models.role import Role
+from app.models.user import User
+
+
+class AuthService:
+    """负责处理用户注册与登录流程，并保持逻辑聚合。"""
+
+    def register_user(self, db: Session, *, username: str, password: str, organization_id: int) -> dict:
+        """创建新用户并设置默认角色，会校验用户名、组织合法性等条件。"""
+        existing_user = user_crud.get_by_username(db, username)
+        if existing_user:
+            raise AppException(msg="用户名已存在", code=HTTP_STATUS_CONFLICT)
+
+        organization = organization_crud.get(db, organization_id)
+        if organization is None:
+            raise AppException(msg="组织机构不存在", code=HTTP_STATUS_NOT_FOUND)
+
+        default_role = role_crud.get_by_name(db, DEFAULT_USER_ROLE)
+        if default_role is None:
+            default_role = self._create_default_role(db)
+
+        hashed_password = get_password_hash(password)
+        user = user_crud.create_with_roles(
+            db,
+            username=username,
+            hashed_password=hashed_password,
+            organization_id=organization_id,
+            roles=[default_role],
+        )
+
+        user_data = {
+            "user_id": user.id,
+            "username": user.username,
+            "organization": {
+                "org_id": organization.id,
+                "org_name": organization.name,
+            },
+            "roles": [role.name for role in user.roles],
+        }
+        return create_response("注册成功", user_data, HTTP_STATUS_OK)
+
+    def login(self, db: Session, *, username: str, password: str) -> dict:
+        """校验用户凭证，签发访问令牌。"""
+        user = user_crud.get_by_username(db, username)
+        if user is None or not verify_password(password, user.hashed_password):
+            raise AppException(msg="用户名或密码错误", code=HTTP_STATUS_UNAUTHORIZED)
+
+        token_payload = {"user_id": user.id, "username": user.username}
+        access_token = create_access_token(token_payload)
+        return create_response(
+            "登录成功",
+            {
+                "access_token": access_token,
+                "token_type": ACCESS_TOKEN_TYPE,
+            },
+            HTTP_STATUS_OK,
+        )
+
+    def _create_default_role(self, db: Session) -> Role:
+        """在默认角色缺失时动态创建，确保注册流程可继续。"""
+        role = Role(name=RoleEnum.USER.value)
+        db.add(role)
+        db.commit()
+        db.refresh(role)
+        return role
+
+
+auth_service = AuthService()

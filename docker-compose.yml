@@ -1,0 +1,45 @@
+services:
+  app:
+    build: .
+    container_name: asmrobotx_app
+    env_file:
+      - .env.production
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-8000}
+
+  db:
+    image: postgres:15
+    container_name: asmrobotx_db
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      POSTGRES_DB: ${DATABASE_NAME:-asmrobotx}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/db/init:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7
+    container_name: asmrobotx_redis
+    restart: always
+    env_file:
+      - .env.production
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:

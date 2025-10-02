@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.build/
+
+# Environments
+.venv/
+venv/
+.env
+.env.*
+
+# VSCode / IDE
+.vscode/
+.idea/
+
+# Byte-compiled / cache
+*.pyo
+*.pyd
+
+# Logs
+logs/
+*.log
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Mypy
+.mypy_cache/
+.dmypy.json
