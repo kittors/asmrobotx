@@ -65,6 +65,47 @@ CREATE TABLE IF NOT EXISTS dictionary_entries (
     CONSTRAINT uq_dictionary_entries_type_value UNIQUE (type_code, value)
 );
 
+CREATE TABLE IF NOT EXISTS operation_logs (
+    id SERIAL PRIMARY KEY,
+    log_number VARCHAR(32) UNIQUE NOT NULL,
+    module VARCHAR(100) NOT NULL,
+    business_type VARCHAR(32) NOT NULL,
+    operator_name VARCHAR(50) NOT NULL,
+    operator_department VARCHAR(100),
+    operator_ip VARCHAR(64),
+    operator_location VARCHAR(255),
+    request_method VARCHAR(16),
+    request_uri VARCHAR(255),
+    class_method VARCHAR(255),
+    request_params TEXT,
+    response_params TEXT,
+    status VARCHAR(16) NOT NULL DEFAULT 'success',
+    error_message TEXT,
+    cost_ms INTEGER NOT NULL DEFAULT 0,
+    operate_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS login_logs (
+    id SERIAL PRIMARY KEY,
+    visit_number VARCHAR(32) UNIQUE NOT NULL,
+    username VARCHAR(50) NOT NULL,
+    client_name VARCHAR(100),
+    device_type VARCHAR(50),
+    ip_address VARCHAR(64),
+    login_location VARCHAR(255),
+    operating_system VARCHAR(100),
+    browser VARCHAR(100),
+    status VARCHAR(16) NOT NULL DEFAULT 'success',
+    message VARCHAR(255),
+    login_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE
+);
+
 INSERT INTO organizations (name)
 VALUES ('研发部')
 ON CONFLICT (name) DO NOTHING;

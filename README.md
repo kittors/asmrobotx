@@ -9,6 +9,7 @@
 - PostgreSQL + SQLAlchemy ORM，Redis 缓存预留（可在 `Settings.redis_url` 中配置）
 - Docker Compose 支持，自动数据库初始化脚本
 - Pytest 接口测试覆盖注册、登录、用户信息、组织列表
+- 操作/登录日志审计，支持搜索、详情、清理与 Excel 导出
 
 ## 项目结构
 ```
@@ -120,6 +121,8 @@ pytest
 | `POST` | `/api/v1/auth/logout` | 退出登录，清理客户端令牌 |
 | `GET` | `/api/v1/users/me` | 获取当前用户信息（需认证） |
 | `GET` | `/api/v1/organizations` | 获取组织机构列表 |
+| `GET` | `/api/v1/logs/operations` | 查询操作日志（需认证） |
+| `GET` | `/api/v1/logs/logins` | 查询登录日志（需认证） |
 
 所有响应遵循统一格式：
 ```json
