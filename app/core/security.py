@@ -42,10 +42,8 @@ def store_refreshed_token(token: Optional[str]) -> None:
 
 
 def consume_refreshed_token() -> Optional[str]:
-    """获取并清除当前请求上下文中的刷新令牌。"""
-    token = _refreshed_token_ctx.get()
-    _refreshed_token_ctx.set(None)
-    return token
+    """获取当前请求上下文中的刷新令牌。"""
+    return _refreshed_token_ctx.get()
 
 
 def decode_token(token: str) -> Optional[Dict[str, Any]]:

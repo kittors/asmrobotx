@@ -35,6 +35,7 @@
         "operation_type_code": "update",
         "operator_name": "admin",
         "operator_ip": "183.161.76.183",
+        "request_uri": "/prod-api/system/serviceRecord",
         "status": "成功",
         "status_code": "success",
         "operate_time": "2025-09-30 16:05:26",
@@ -63,7 +64,7 @@
 ### 导出操作日志
 
 - **URL**：`GET /api/v1/logs/operations/export`
-- **说明**：按照查询条件导出 xlsx 文件，表头包含日志编号、系统模块、操作类型、操作人员、操作地址、操作状态、操作时间与消耗时间。
+- **说明**：按照查询条件导出 xlsx 文件，表头包含日志编号、系统模块、操作类型、操作人员、操作地址、请求地址、操作状态、操作时间与消耗时间。
 
 ## 登录日志
 
@@ -78,6 +79,8 @@
   - `start_time`/`end_time`：登录时间范围，格式 `YYYY-MM-DD HH:MM:SS`
   - `page`/`page_size`：分页控制
 - **响应字段**：包含访问编号、用户名、客户端、设备类型、地址、登录地点、操作系统、浏览器、登录状态、描述与访问时间。
+
+> 登录接口会自动写入成功与失败的登录行为，字段来源于请求头部（如 `User-Agent`、`X-Forwarded-For` 等）。
 
 ### 删除登录日志
 

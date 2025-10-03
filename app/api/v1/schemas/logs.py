@@ -14,6 +14,7 @@ class OperationLogListItem(BaseModel):
     operation_type_code: str
     operator_name: str
     operator_ip: Optional[str]
+    request_uri: Optional[str]
     status: str
     status_code: str
     operate_time: Optional[str]

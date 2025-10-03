@@ -121,6 +121,7 @@ pytest
 | `POST` | `/api/v1/auth/logout` | 退出登录，清理客户端令牌 |
 | `GET` | `/api/v1/users/me` | 获取当前用户信息（需认证） |
 | `GET` | `/api/v1/organizations` | 获取组织机构列表 |
+| `GET` | `/api/v1/access-controls/routers` | 获取动态菜单路由（需认证） |
 | `GET` | `/api/v1/logs/operations` | 查询操作日志（需认证） |
 | `GET` | `/api/v1/logs/logins` | 查询登录日志（需认证） |
 

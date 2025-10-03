@@ -123,4 +123,26 @@ AccessControlTreeResponse = ResponseEnvelope[list[AccessControlTreeNode]]
 AccessControlDetailResponse = ResponseEnvelope[AccessControlDetail]
 AccessControlMutationResponse = ResponseEnvelope[AccessControlDetail]
 AccessControlDeletionResponse = ResponseEnvelope[Optional[None]]
+
+
+class RouterMeta(BaseModel):
+    title: str
+    icon: Optional[str] = None
+    noCache: bool
+    link: Optional[str] = None
+
+
+class RouterItem(BaseModel):
+    name: str
+    path: str
+    hidden: bool
+    component: Optional[str] = None
+    redirect: Optional[str] = None
+    alwaysShow: Optional[bool] = None
+    meta: RouterMeta
+    children: list["RouterItem"] = Field(default_factory=list)
+
+
+RouterItem.model_rebuild()
+RouterListResponse = ResponseEnvelope[list[RouterItem]]
 AccessControlTreeNode.model_rebuild()

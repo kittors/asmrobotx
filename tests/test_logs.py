@@ -74,6 +74,8 @@ def test_operation_logs_listing_and_detail(client: TestClient, db_session_fixtur
     assert data["data"]["total"] >= 1
     items = data["data"]["items"]
     assert any(item["log_number"] == log_number for item in items)
+    target_item = next(item for item in items if item["log_number"] == log_number)
+    assert target_item["request_uri"] == "/prod-api/system/serviceRecord"
 
     detail = client.get(f"/api/v1/logs/operations/{log_number}", headers=headers)
     assert detail.status_code == 200

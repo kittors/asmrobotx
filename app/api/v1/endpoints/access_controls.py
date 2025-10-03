@@ -1,8 +1,12 @@
 """访问控制管理相关的路由定义。"""
 
-from typing import Optional
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import json
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.api.v1.schemas.access_control import (
@@ -12,10 +16,13 @@ from app.api.v1.schemas.access_control import (
     AccessControlMutationResponse,
     AccessControlTreeResponse,
     AccessControlUpdateRequest,
+    RouterListResponse,
 )
 from app.core.dependencies import get_current_active_user, get_db
+from app.core.logger import logger
 from app.models.user import User
 from app.services.access_control_service import access_control_service
+from app.services.log_service import log_service
 
 router = APIRouter(prefix="/access-controls", tags=["access_controls"])
 
@@ -31,6 +38,15 @@ def list_access_controls(
     return access_control_service.list_tree(db, name=name, enabled_status=enabled_status)
 
 
+@router.get("/routers", response_model=RouterListResponse)
+def get_routers(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> RouterListResponse:
+    """返回前端动态路由配置。"""
+    return access_control_service.get_routers(db)
+
+
 @router.get("/{item_id}", response_model=AccessControlDetailResponse)
 def get_access_control_item(
     item_id: int,
@@ -44,29 +60,183 @@ def get_access_control_item(
 @router.post("", response_model=AccessControlMutationResponse)
 def create_access_control_item(
     payload: AccessControlCreateRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> AccessControlMutationResponse:
     """创建新的访问控制节点。"""
-    return access_control_service.create(db, payload=payload.model_dump(exclude_none=True))
+
+    started_at = datetime.now(timezone.utc)
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+    body = payload.model_dump(exclude_none=True)
+
+    try:
+        response_payload = access_control_service.create(db, payload=body)
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            business_type="create",
+            class_method="app.api.v1.endpoints.access_controls.create_access_control_item",
+            request_body=body,
+            response_body=response_payload,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
 
 
 @router.put("/{item_id}", response_model=AccessControlMutationResponse)
 def update_access_control_item(
     item_id: int,
     payload: AccessControlUpdateRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> AccessControlMutationResponse:
     """更新现有访问控制节点。"""
-    return access_control_service.update(db, item_id=item_id, payload=payload.model_dump(exclude_unset=True))
+
+    started_at = datetime.now(timezone.utc)
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+    body = payload.model_dump(exclude_unset=True)
+    audit_body = {"item_id": item_id, **body}
+
+    try:
+        response_payload = access_control_service.update(db, item_id=item_id, payload=body)
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            business_type="update",
+            class_method="app.api.v1.endpoints.access_controls.update_access_control_item",
+            request_body=audit_body,
+            response_body=response_payload,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
 
 
 @router.delete("/{item_id}", response_model=AccessControlDeletionResponse)
 def delete_access_control_item(
     item_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> AccessControlDeletionResponse:
     """删除指定的访问控制节点。"""
-    return access_control_service.delete(db, item_id=item_id)
+
+    started_at = datetime.now(timezone.utc)
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+
+    try:
+        response_payload = access_control_service.delete(db, item_id=item_id)
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            business_type="delete",
+            class_method="app.api.v1.endpoints.access_controls.delete_access_control_item",
+            request_body={"item_id": item_id},
+            response_body=response_payload,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
+
+
+def _record_operation_log(
+    *,
+    db: Session,
+    request: Request,
+    current_user: User,
+    business_type: str,
+    class_method: str,
+    request_body: Optional[dict[str, Any]],
+    response_body: Optional[dict[str, Any]],
+    status: str,
+    error_message: Optional[str],
+    started_at: datetime,
+) -> None:
+    """记录访问控制相关的操作日志。"""
+
+    finished_at = datetime.now(timezone.utc)
+    cost_ms = max(int((finished_at - started_at).total_seconds() * 1000), 0)
+
+    status_value = status if status in {"success", "failure"} else "other"
+
+    try:
+        log_service.record_operation_log(
+            db,
+            payload={
+                "module": "访问控制管理",
+                "business_type": business_type,
+                "operator_name": current_user.username,
+                "operator_department": None,
+                "operator_ip": _extract_client_ip(request),
+                "operator_location": None,
+                "request_method": request.method,
+                "request_uri": _build_request_uri(request),
+                "class_method": class_method,
+                "request_params": _safe_json_dump(request_body),
+                "response_params": _safe_json_dump(response_body),
+                "status": status_value,
+                "error_message": error_message,
+                "cost_ms": cost_ms,
+                "operate_time": finished_at,
+            },
+        )
+    except Exception as exc:  # pragma: no cover - 日志失败不应阻断业务流程
+        logger.warning("Failed to record operation log: %s", exc)
+
+
+def _extract_client_ip(request: Request) -> Optional[str]:
+    for header in ("x-forwarded-for", "x-real-ip", "x-client-ip"):
+        value = request.headers.get(header)
+        if value:
+            return value.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return None
+
+
+def _safe_json_dump(payload: Optional[dict[str, Any]]) -> Optional[str]:
+    if payload is None:
+        return None
+    try:
+        return json.dumps(payload, ensure_ascii=False, default=str)
+    except Exception as exc:  # pragma: no cover - 防御性处理
+        logger.debug("Failed to serialize payload for log: %s", exc)
+        return json.dumps({"unserializable": True}, ensure_ascii=False)
+
+
+def _build_request_uri(request: Request) -> str:
+    path = request.url.path
+    query = request.url.query
+    if query:
+        return f"{path}?{query}"
+    return path

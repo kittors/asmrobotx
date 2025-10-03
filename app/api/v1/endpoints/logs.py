@@ -53,32 +53,6 @@ def list_operation_logs(
     )
 
 
-@router.get("/operations/{log_number}", response_model=OperationLogDetailResponse)
-def get_operation_log_detail(
-    log_number: str,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
-) -> OperationLogDetailResponse:
-    return log_service.get_operation_log_detail(db, log_number=log_number)
-
-
-@router.delete("/operations/{log_number}", response_model=OperationLogDeletionResponse)
-def delete_operation_log(
-    log_number: str,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
-) -> OperationLogDeletionResponse:
-    return log_service.delete_operation_log(db, log_number=log_number)
-
-
-@router.delete("/operations", response_model=OperationLogDeletionResponse)
-def clear_operation_logs(
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
-) -> OperationLogDeletionResponse:
-    return log_service.clear_operation_logs(db)
-
-
 @router.get("/operations/export")
 def export_operation_logs(
     module: Optional[str] = Query(None),
@@ -103,6 +77,32 @@ def export_operation_logs(
         start_time=_parse_datetime(start_time),
         end_time=_parse_datetime(end_time),
     )
+
+
+@router.get("/operations/{log_number}", response_model=OperationLogDetailResponse)
+def get_operation_log_detail(
+    log_number: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> OperationLogDetailResponse:
+    return log_service.get_operation_log_detail(db, log_number=log_number)
+
+
+@router.delete("/operations/{log_number}", response_model=OperationLogDeletionResponse)
+def delete_operation_log(
+    log_number: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> OperationLogDeletionResponse:
+    return log_service.delete_operation_log(db, log_number=log_number)
+
+
+@router.delete("/operations", response_model=OperationLogDeletionResponse)
+def clear_operation_logs(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> OperationLogDeletionResponse:
+    return log_service.clear_operation_logs(db)
 
 
 @router.get("/logins", response_model=LoginLogListResponse)

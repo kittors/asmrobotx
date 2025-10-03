@@ -1,6 +1,9 @@
 """认证相关路由定义。"""
 
-from fastapi import APIRouter, Depends
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.api.v1.schemas.auth import (
@@ -31,12 +34,87 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> Registe
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
     """校验凭证并签发访问令牌。"""
-    return auth_service.login(db, username=payload.username, password=payload.password)
+    client_meta = _extract_login_meta(request)
+    return auth_service.login(
+        db,
+        username=payload.username,
+        password=payload.password,
+        client_meta=client_meta,
+    )
 
 
 @router.post("/logout", response_model=LogoutResponse)
 def logout(current_user: User = Depends(get_current_active_user)) -> LogoutResponse:
     """退出登录，前端需删除本地缓存的令牌。"""
     return create_response("退出登录成功", None, HTTP_STATUS_OK)
+
+
+def _extract_login_meta(request: Request) -> Dict[str, Any]:
+    """从请求中提取用于记录登录日志的上下文信息。"""
+
+    ip_address = _extract_client_ip(request)
+    user_agent = request.headers.get("user-agent", "")
+    operating_system = _guess_operating_system(user_agent)
+    browser = _guess_browser(user_agent)
+    device_type = "mobile" if "mobile" in user_agent.lower() else "pc"
+
+    return {
+        "ip_address": ip_address,
+        "user_agent": user_agent,
+        "operating_system": operating_system,
+        "browser": browser,
+        "device_type": device_type,
+        "client_name": "web",
+        "login_time": datetime.now(timezone.utc),
+    }
+
+
+def _extract_client_ip(request: Request) -> Optional[str]:
+    header_keys = [
+        "x-forwarded-for",
+        "x-real-ip",
+        "x-client-ip",
+    ]
+    for key in header_keys:
+        raw = request.headers.get(key)
+        if raw:
+            return raw.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return None
+
+
+def _guess_operating_system(user_agent: str) -> Optional[str]:
+    ua = user_agent.lower()
+    if not ua:
+        return None
+    if "windows" in ua:
+        return "Windows"
+    if "mac os" in ua or "macintosh" in ua:
+        return "macOS"
+    if "iphone" in ua or "ios" in ua:
+        return "iOS"
+    if "android" in ua:
+        return "Android"
+    if "linux" in ua:
+        return "Linux"
+    return None
+
+
+def _guess_browser(user_agent: str) -> Optional[str]:
+    ua = user_agent.lower()
+    if not ua:
+        return None
+    if "chrome" in ua and "safari" in ua and "edge" not in ua:
+        return "Chrome"
+    if "safari" in ua and "chrome" not in ua:
+        return "Safari"
+    if "firefox" in ua:
+        return "Firefox"
+    if "edge" in ua or "edg" in ua:
+        return "Edge"
+    if "msie" in ua or "trident" in ua:
+        return "Internet Explorer"
+    return None

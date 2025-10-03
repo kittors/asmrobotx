@@ -1,5 +1,8 @@
 """认证服务：封装注册、登录等核心业务流程。"""
 
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
 from sqlalchemy.orm import Session
 
 from app.core.constants import (
@@ -11,6 +14,7 @@ from app.core.constants import (
     HTTP_STATUS_UNAUTHORIZED,
 )
 from app.core.exceptions import AppException
+from app.core.logger import logger
 from app.core.responses import create_response
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.crud.organizations import organization_crud
@@ -19,6 +23,7 @@ from app.crud.users import user_crud
 from app.core.enums import RoleEnum
 from app.models.role import Role
 from app.models.user import User
+from app.services.log_service import log_service
 
 
 class AuthService:
@@ -58,14 +63,40 @@ class AuthService:
         }
         return create_response("注册成功", user_data, HTTP_STATUS_OK)
 
-    def login(self, db: Session, *, username: str, password: str) -> dict:
-        """校验用户凭证，签发访问令牌。"""
+    def login(
+        self,
+        db: Session,
+        *,
+        username: str,
+        password: str,
+        client_meta: Optional[Dict[str, Any]] = None,
+    ) -> dict:
+        """校验用户凭证，签发访问令牌并记录登录日志。"""
+
+        audit_meta = client_meta or {}
         user = user_crud.get_by_username(db, username)
         if user is None or not verify_password(password, user.hashed_password):
+            self._record_login_log(
+                db,
+                username=username,
+                status="failure",
+                message="用户名或密码错误",
+                audit_meta=audit_meta,
+            )
             raise AppException(msg="用户名或密码错误", code=HTTP_STATUS_UNAUTHORIZED)
 
         token_payload = {"user_id": user.id, "username": user.username}
         access_token = create_access_token(token_payload)
+
+        self._record_login_log(
+            db,
+            username=user.username,
+            status="success",
+            message="登录成功",
+            audit_meta=audit_meta,
+            user=user,
+        )
+
         return create_response(
             "登录成功",
             {
@@ -82,6 +113,35 @@ class AuthService:
         db.commit()
         db.refresh(role)
         return role
+
+    def _record_login_log(
+        self,
+        db: Session,
+        *,
+        username: str,
+        status: str,
+        message: str,
+        audit_meta: Dict[str, Any],
+        user: Optional[User] = None,
+    ) -> None:
+        try:
+            payload = {
+                "username": username,
+                "client_name": audit_meta.get("client_name") or "web",
+                "device_type": audit_meta.get("device_type"),
+                "ip_address": audit_meta.get("ip_address"),
+                "login_location": audit_meta.get("login_location"),
+                "operating_system": audit_meta.get("operating_system"),
+                "browser": audit_meta.get("browser") or audit_meta.get("user_agent"),
+                "status": status,
+                "message": message,
+                "login_time": audit_meta.get("login_time") or datetime.now(timezone.utc),
+            }
+
+            log_service.record_login_log(db, payload=payload)
+        except Exception as exc:  # pragma: no cover - 审计失败不影响登录主流程
+            logger.warning("Failed to record login log for %s: %s", username, exc)
+            db.rollback()
 
 
 auth_service = AuthService()

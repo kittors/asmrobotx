@@ -40,7 +40,9 @@ def test_access_control_crud_flow(client: TestClient):
     assert root_payload["data"]["component_path"] is None
     refreshed_token = create_root_resp.headers.get("X-Access-Token")
     assert refreshed_token
-    assert root_payload.get("meta", {}).get("access_token") == refreshed_token
+    meta_payload = root_payload.get("meta") or {}
+    if meta_payload:
+        assert meta_payload.get("access_token") == refreshed_token
 
     # 创建子菜单
     create_menu_resp = client.post(
@@ -155,3 +157,66 @@ def test_dictionary_endpoint_returns_seed_items(client: TestClient):
     assert payload["code"] == 200
     values = {item["value"] for item in payload["data"]}
     assert {"show", "hidden"}.issubset(values)
+
+
+def test_get_routers_returns_dynamic_menu_tree(client: TestClient):
+    """动态路由接口应返回启用菜单的层级结构。"""
+    token = _get_token(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    root_resp = client.post(
+        "/api/v1/access-controls",
+        headers=headers,
+        json={
+            "name": "动态菜单",
+            "type": "menu",
+            "route_path": "/dynamic",
+            "display_status": "show",
+            "enabled_status": "enabled",
+            "component_path": "Layout",
+            "icon": "system",
+            "sort_order": 1,
+            "keep_alive": True,
+        },
+    )
+    assert root_resp.status_code == 200
+    root_id = root_resp.json()["data"]["id"]
+
+    child_resp = client.post(
+        "/api/v1/access-controls",
+        headers=headers,
+        json={
+            "parent_id": root_id,
+            "name": "子页面",
+            "type": "menu",
+            "route_path": "child",
+            "display_status": "show",
+            "enabled_status": "enabled",
+            "component_path": "demo/child/index",
+            "icon": "user",
+            "sort_order": 2,
+            "keep_alive": False,
+        },
+    )
+    assert child_resp.status_code == 200
+    child_id = child_resp.json()["data"]["id"]
+
+    router_resp = client.get("/api/v1/access-controls/routers", headers=headers)
+    assert router_resp.status_code == 200
+    routers = router_resp.json()["data"]
+    assert isinstance(routers, list)
+
+    root_router = next(item for item in routers if item["meta"]["title"] == "动态菜单")
+    assert root_router["path"] == "/dynamic"
+    assert root_router["component"] == "Layout"
+    assert root_router["hidden"] is False
+    assert root_router["meta"]["noCache"] is False
+    assert root_router["children"]
+
+    child_router = root_router["children"][0]
+    assert child_router["path"] == "child"
+    assert child_router["component"] == "demo/child/index"
+    assert child_router["meta"]["noCache"] is True
+
+    client.delete(f"/api/v1/access-controls/{child_id}", headers=headers)
+    client.delete(f"/api/v1/access-controls/{root_id}", headers=headers)

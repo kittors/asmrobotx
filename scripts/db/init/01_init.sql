@@ -65,6 +65,27 @@ CREATE TABLE IF NOT EXISTS dictionary_entries (
     CONSTRAINT uq_dictionary_entries_type_value UNIQUE (type_code, value)
 );
 
+CREATE TABLE IF NOT EXISTS access_control_items (
+    id SERIAL PRIMARY KEY,
+    parent_id INTEGER REFERENCES access_control_items(id) ON DELETE SET NULL,
+    name VARCHAR(100) NOT NULL,
+    type VARCHAR(20) NOT NULL DEFAULT 'menu',
+    icon VARCHAR(100),
+    is_external BOOLEAN NOT NULL DEFAULT FALSE,
+    permission_code VARCHAR(100),
+    route_path VARCHAR(255),
+    display_status VARCHAR(50),
+    enabled_status VARCHAR(50) NOT NULL DEFAULT 'enabled',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    component_path VARCHAR(255),
+    route_params JSONB,
+    keep_alive BOOLEAN NOT NULL DEFAULT FALSE,
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT uq_access_control_items_permission_code UNIQUE (permission_code)
+);
+
 CREATE TABLE IF NOT EXISTS operation_logs (
     id SERIAL PRIMARY KEY,
     log_number VARCHAR(32) UNIQUE NOT NULL,
@@ -156,3 +177,37 @@ VALUES
     ('icon_list', '地图定位', 'map-pinned', '地理定位图标', 5),
     ('icon_list', '菜单', 'menu', '菜单/列表图标', 6)
 ON CONFLICT (type_code, value) DO NOTHING;
+
+INSERT INTO access_control_items (
+    id, parent_id, name, type, icon, is_external, permission_code, route_path,
+    display_status, enabled_status, sort_order, component_path, route_params, keep_alive
+)
+VALUES
+    (1, NULL, '系统管理', 'menu', 'settings', FALSE, NULL, 'system', 'show', 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (2, 1, '用户管理', 'menu', 'tool-case', FALSE, 'system:user:list', 'user', 'show', 'enabled', 0, 'system/user/index', '{}'::jsonb, FALSE),
+    (3, 2, '用户查询', 'button', NULL, FALSE, 'system:user:query', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (4, 2, '用户新增', 'button', NULL, FALSE, 'system:user:add', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (5, 2, '用户修改', 'button', NULL, FALSE, 'system:user:edit', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (6, 2, '用户删除', 'button', NULL, FALSE, 'system:user:remove', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (7, 2, '用户导出', 'button', NULL, FALSE, 'system:user:export', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (8, 2, '用户导入', 'button', NULL, FALSE, 'system:user:import', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (9, 2, '重置密码', 'button', NULL, FALSE, 'system:user:resetPwd', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (10, 1, '角色管理', 'menu', 'settings', FALSE, 'system:role:list', 'role', 'show', 'enabled', 0, 'system/role/index', '{}'::jsonb, FALSE),
+    (11, 10, '角色查询', 'button', NULL, FALSE, 'system:role:query', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (12, 10, '角色新增', 'button', NULL, FALSE, 'system:role:add', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (13, 10, '角色修改', 'button', NULL, FALSE, 'system:role:edit', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (14, 10, '角色删除', 'button', NULL, FALSE, 'system:role:remove', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (15, 10, '角色导出', 'button', NULL, FALSE, 'system:role:export', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (16, 1, '日志管理', 'menu', 'settings', FALSE, NULL, 'log', 'show', 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (17, 16, '操作日志', 'menu', 'settings', FALSE, 'monitor:operlog:list', 'operlog', 'show', 'enabled', 0, 'monitor/operlog/index', '{}'::jsonb, FALSE),
+    (18, 16, '登录日志', 'menu', NULL, FALSE, 'monitor:logininfor:list', 'logininfor', 'show', 'enabled', 0, 'monitor/logininfor/index', '{}'::jsonb, FALSE),
+    (19, 17, '操作查询', 'button', NULL, FALSE, 'monitor:operlog:query', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (20, 17, '操作删除', 'button', NULL, FALSE, 'monitor:operlog:remove', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (21, 17, '日志导出', 'button', NULL, FALSE, 'monitor:operlog:export', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (22, 18, '登录查询', 'button', NULL, FALSE, 'monitor:logininfor:query', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (23, 18, '登录删除', 'button', NULL, FALSE, 'monitor:logininfor:remove', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (24, 18, '日志导出', 'button', NULL, FALSE, 'monitor:logininfor:export', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (25, 18, '账户解锁', 'button', NULL, FALSE, 'monitor:logininfor:unlock', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE)
+ON CONFLICT (id) DO NOTHING;
+
+SELECT setval('access_control_items_id_seq', (SELECT MAX(id) FROM access_control_items));

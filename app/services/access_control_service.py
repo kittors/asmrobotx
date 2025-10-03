@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -140,6 +141,32 @@ class AccessControlService:
             if include_map.get(root.id, False)
         ]
         return create_response("获取访问控制列表成功", tree, HTTP_STATUS_OK)
+
+    def get_routers(self, db: Session) -> dict[str, Any]:
+        """构建前端动态路由所需的菜单结构。"""
+
+        items = access_control_crud.list_all(db)
+        menus = [
+            item
+            for item in items
+            if self._normalize_type_value(item.type) == AccessControlTypeEnum.MENU.value
+            and (item.enabled_status or "enabled").strip().lower() == "enabled"
+        ]
+
+        if not menus:
+            return create_response("获取路由成功", [], HTTP_STATUS_OK)
+
+        children_map: Dict[Optional[int], List[AccessControlItem]] = defaultdict(list)
+        for menu in menus:
+            parent_key = menu.parent_id or None
+            children_map[parent_key].append(menu)
+
+        for siblings in children_map.values():
+            siblings.sort(key=lambda node: (node.sort_order, node.id))
+
+        roots = children_map.get(None, [])
+        payload = [self._serialize_router_node(root, children_map, None) for root in roots]
+        return create_response("获取路由成功", payload, HTTP_STATUS_OK)
 
     def get_detail(self, db: Session, *, item_id: int) -> dict[str, Any]:
         """返回指定访问控制项的详情。"""
@@ -435,6 +462,98 @@ class AccessControlService:
             "create_time": item.create_time,
             "update_time": item.update_time,
         }
+
+    def _serialize_router_node(
+        self,
+        node: AccessControlItem,
+        children_map: Dict[Optional[int], List[AccessControlItem]],
+        parent: Optional[AccessControlItem],
+    ) -> Dict[str, Any]:
+        child_nodes = children_map.get(node.id, [])
+        route: Dict[str, Any] = {
+            "name": self._resolve_route_name(node),
+            "path": self._resolve_route_path(node, parent),
+            "hidden": self._is_hidden(node),
+            "component": self._resolve_component(node, parent, child_nodes),
+            "meta": self._build_meta(node),
+        }
+
+        if child_nodes:
+            route["children"] = [
+                self._serialize_router_node(child, children_map, node) for child in child_nodes
+            ]
+            if len(route["children"]) > 1:
+                route["alwaysShow"] = True
+            route["redirect"] = "noRedirect"
+        else:
+            route["children"] = []
+
+        # 移除值为 None 的键，避免响应出现 null 字段
+        cleaned = {key: value for key, value in route.items() if value is not None}
+        return cleaned
+
+    def _resolve_route_name(self, node: AccessControlItem) -> str:
+        for candidate in self._candidate_name_fields(node):
+            slug = self._slugify(candidate)
+            if slug:
+                return f"{slug}{node.id}"
+        return str(node.id)
+
+    def _candidate_name_fields(self, node: AccessControlItem) -> Iterable[str]:
+        yield node.component_path or ""
+        yield node.route_path or ""
+        yield node.name or ""
+
+    def _slugify(self, value: str) -> str:
+        if not value:
+            return ""
+        tokens = [segment for segment in re.split(r"[^0-9A-Za-z]+", value) if segment]
+        return "".join(token.capitalize() for token in tokens)
+
+    def _resolve_route_path(self, node: AccessControlItem, parent: Optional[AccessControlItem]) -> str:
+        raw_path = (node.route_path or "").strip()
+        if node.is_external and raw_path:
+            return raw_path
+
+        if parent is None:
+            if not raw_path:
+                return f"/{node.id}"
+            if raw_path.startswith("/"):
+                return raw_path
+            return f"/{raw_path}"
+
+        if not raw_path:
+            return str(node.id)
+        return raw_path.lstrip("/")
+
+    def _resolve_component(
+        self,
+        node: AccessControlItem,
+        parent: Optional[AccessControlItem],
+        children: list[AccessControlItem],
+    ) -> Optional[str]:
+        component = (node.component_path or "").strip() or None
+        if component:
+            return component
+        if node.is_external:
+            return None
+        if parent is None:
+            return "Layout"
+        if children:
+            return "ParentView"
+        return None
+
+    def _build_meta(self, node: AccessControlItem) -> Dict[str, Any]:
+        return {
+            "title": node.name,
+            "icon": node.icon,
+            "noCache": not bool(node.keep_alive),
+            "link": node.route_path if node.is_external else None,
+        }
+
+    def _is_hidden(self, node: AccessControlItem) -> bool:
+        display = (node.display_status or "show").strip().lower()
+        return display == "hidden"
 
 
 access_control_service = AccessControlService()

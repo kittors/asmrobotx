@@ -73,6 +73,57 @@
 
 ---
 
+## GET `/api/v1/access-controls/routers`
+
+返回前端动态路由所需的菜单配置，通常用于登录后拼装路由表。
+
+### 成功响应
+- 状态码：`200`
+- 响应体示例：
+```json
+{
+  "msg": "获取路由成功",
+  "code": 200,
+  "data": [
+    {
+      "name": "SystemMenu1",
+      "path": "/system",
+      "hidden": false,
+      "component": "Layout",
+      "redirect": "noRedirect",
+      "meta": {
+        "title": "系统管理",
+        "icon": "system",
+        "noCache": false,
+        "link": null
+      },
+      "children": [
+        {
+          "name": "UserList2",
+          "path": "user",
+          "hidden": false,
+          "component": "system/user/index",
+          "meta": {
+            "title": "用户管理",
+            "icon": "user",
+            "noCache": true,
+            "link": null
+          },
+          "children": []
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 说明
+- 仅返回启用状态的菜单节点，按钮与停用菜单会被自动过滤。
+- `hidden` 字段由 `display_status` 推导，`noCache` 与 `keep_alive` 参数互为反义。
+- 外链菜单会在 `meta.link` 返回 URL，前端可按需渲染。
+
+---
+
 ## GET `/api/v1/access-controls/{item_id}`
 
 获取单个访问控制项的详细信息，常用于编辑前加载表单。
@@ -178,3 +229,4 @@
 ### 备注
 - 删除菜单前需先删除下级菜单及按钮。
 - 删除按钮不会影响同级其他节点。
+- 所有新增 / 修改 / 删除操作都会自动写入“操作日志”，便于在 `/api/v1/logs/operations` 页面审计。
