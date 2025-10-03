@@ -3,12 +3,12 @@
 from collections.abc import Generator
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.constants import ACCESS_TOKEN_TYPE
-from app.core.security import decode_token
+from app.core.security import create_access_token, decode_token, store_refreshed_token
 from app.crud.users import user_crud
 from app.db.session import SessionLocal
 from app.models.user import User
@@ -26,6 +26,7 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_current_user(
+    response: Response,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
     db: Session = Depends(get_db),
 ) -> User:
@@ -47,6 +48,10 @@ def get_current_user(
     user = user_crud.get(db, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
+
+    refreshed_token = create_access_token({"user_id": user.id, "username": user.username})
+    response.headers["X-Access-Token"] = refreshed_token
+    store_refreshed_token(refreshed_token)
 
     return user
 

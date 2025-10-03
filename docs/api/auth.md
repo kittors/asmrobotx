@@ -76,7 +76,8 @@
 - `422` 请求体验证失败。
 
 ### 备注
-- 令牌有效期由环境变量 `ACCESS_TOKEN_EXPIRE_MINUTES` 控制，默认 60 分钟。
+- 令牌的基础有效期由环境变量 `ACCESS_TOKEN_EXPIRE_MINUTES` 控制（默认 60 分钟），但只要在有效期内调用任意受保护接口，系统会自动刷新令牌并通过响应头 `X-Access-Token` 及响应体 `meta.access_token` 返回最新 Token，实现滑动过期。
+- 客户端应在每次请求后使用新的 Token 覆盖本地缓存，以确保会话持续有效。
 - 所有需要认证的接口均要求在请求头携带 `Authorization: Bearer <access_token>`。
 
 ---

@@ -21,13 +21,18 @@
       "id": 1,
       "parent_id": null,
       "name": "系统管理",
-      "type": "directory",
+      "type": "menu",
       "icon": "icon-settings",
       "is_external": false,
-      "permission_code": "system:manage",
-      "route_path": "/system",
+      "permission_code": null,
+      "route_path": null,
       "display_status": "show",
       "enabled_status": "enabled",
+      "component_path": "layouts/SystemLayout.vue",
+      "route_params": {
+        "redirect": "/system/menu"
+      },
+      "keep_alive": true,
       "effective_display_status": "show",
       "effective_enabled_status": "enabled",
       "sort_order": 1,
@@ -43,6 +48,11 @@
           "route_path": "/system/menu",
           "display_status": "show",
           "enabled_status": "disabled",
+      "component_path": "views/system/menu/index.vue",
+          "route_params": {
+            "title": "菜单管理"
+          },
+          "keep_alive": false,
           "effective_display_status": "show",
           "effective_enabled_status": "disabled",
           "sort_order": 2,
@@ -88,6 +98,11 @@
     "display_status": "show",
     "enabled_status": "disabled",
     "sort_order": 2,
+    "component_path": "views/system/menu/index.vue",
+    "route_params": {
+      "title": "菜单管理"
+    },
+    "keep_alive": false,
     "create_time": "2024-01-01T12:00:00+00:00",
     "update_time": "2024-01-01T12:30:00+00:00"
   },
@@ -103,28 +118,31 @@
 
 ## POST `/api/v1/access-controls`
 
-创建新的访问控制项（目录 / 菜单 / 按钮）。
+创建新的访问控制项（菜单 / 按钮）。
 
 ### 请求体字段
-- `parent_id` *(可选)*：父级节点 ID，根目录可省略或传 `null`。
+- `parent_id` *(可选)*：父级节点 ID，根级菜单可省略或传 `null`。
 - `name` *(必填)*：显示名称。
-- `type` *(必填)*：`directory`、`menu` 或 `button`。
-- `icon` *(可选)*：图标标识，仅目录/菜单使用。
-- `is_external` *(可选)*：是否外链，目录/菜单有效，默认为 `false`。
-- `permission_code` *(必填)*：全局唯一的权限字符。
-- `route_path` *(目录/菜单必填)*：对应前端路由地址或外链 URL。
-- `display_status` *(目录/菜单必填)*：取值 `show` 或 `hidden`。
+- `type` *(必填)*：`menu` 或 `button`，仅菜单可作为顶层节点。
+- `icon` *(可选)*：图标标识，仅菜单使用。
+- `is_external` *(可选)*：是否外链，仅菜单有效，默认为 `false`。
+- `permission_code` *(可选，按钮必填)*：全局唯一的权限字符。按钮必须提供，菜单可留空。
+- `route_path` *(可选，菜单使用)*：对应前端路由地址或外链 URL，未配置时可由前端自行处理跳转逻辑。
+- `display_status` *(菜单必填)*：取值 `show` 或 `hidden`。
 - `enabled_status` *(必填)*：取值 `enabled` 或 `disabled`。
 - `sort_order` *(可选)*：排序字段，数字越小越靠前。
+- `component_path` *(可选，菜单使用)*：前端组件路径，例如 `views/system/index.vue`。
+- `route_params` *(可选)*：路由参数对象，默认为空对象。
+- `keep_alive` *(可选)*：是否缓存菜单页面，默认为 `false`。
 
 ### 成功响应
 - 状态码：`200`
 - 响应体与详情接口一致。
 
 ### 异常响应
-- `400` 参数校验失败，如目录缺少路由地址、按钮设置外链等。
+- `400` 参数校验失败，如菜单缺少必填字段、按钮设置外链等。
 - `404` 指定父节点不存在。
-- `409` `permission_code` 重复：`{"msg":"权限字符已存在","data":null,"code":409}`。
+- `409` `permission_code` 重复（在提交非空权限字符时可能发生）：`{"msg":"权限字符已存在","data":null,"code":409}`。
 
 ---
 
@@ -144,49 +162,6 @@
 
 ---
 
-## PATCH `/api/v1/access-controls/{item_id}/reorder`
-
-拖拽调整访问控制项的层级与同级排序。
-
-### 请求体字段
-- `target_parent_id` *(可选)*：目标父级 ID，设置为 `null` 表示移动到顶层（仅目录类型可用）。
-- `target_index` *(必填)*：插入到目标父级下的排序位置（从 `0` 开始）。
-
-### 成功响应
-- 状态码：`200`
-- 响应体：
-```json
-{
-  "msg": "更新排序成功",
-  "data": {
-    "id": 5,
-    "parent_id": 2,
-    "name": "菜单A2",
-    "type": "menu",
-    "icon": null,
-    "is_external": false,
-    "permission_code": "system:menu:a2",
-    "route_path": "/system/menu/a2",
-    "display_status": "show",
-    "enabled_status": "enabled",
-    "sort_order": 0,
-    "create_time": "2024-01-01T12:00:00+00:00",
-    "update_time": "2024-01-01T12:35:00+00:00"
-  },
-  "code": 200
-}
-```
-
-### 异常响应
-- `400` 非法操作：如尝试将目录移动到非顶层、将节点拖拽到自身或子节点、或将子项放置到按钮节点下。
-- `404` 目标节点或父节点不存在。
-
-### 备注
-- 移动成功后，同级节点的 `sort_order` 会重新按 0,1,2 顺序编号。
-- 当前节点的 `parent_id` 将更新为目标父级的 ID。
-
----
-
 ## DELETE `/api/v1/access-controls/{item_id}`
 
 删除访问控制项，采用软删除策略。
@@ -201,5 +176,5 @@
 - `404` 目标项不存在。
 
 ### 备注
-- 删除目录或菜单前需先删除下级菜单及按钮。
+- 删除菜单前需先删除下级菜单及按钮。
 - 删除按钮不会影响同级其他节点。

@@ -1,5 +1,7 @@
 """应用入口：负责创建 FastAPI 实例并绑定生命周期事件。"""
 
+from typing import Any
+
 from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -39,9 +41,19 @@ async def custom_generic_exception_handler(request, exc):  # pragma: no cover - 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):  # pragma: no cover - framework glue
     """统一处理请求体验证失败的场景。"""
+    def _serialize(obj: Any) -> Any:
+        if isinstance(obj, Exception):
+            return str(obj)
+        if isinstance(obj, dict):
+            return {key: _serialize(value) for key, value in obj.items()}
+        if isinstance(obj, list):
+            return [_serialize(item) for item in obj]
+        return obj
+
+    serialized_errors = _serialize(exc.errors())
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=create_response("请求参数验证失败", exc.errors(), status.HTTP_422_UNPROCESSABLE_ENTITY),
+        content=create_response("请求参数验证失败", serialized_errors, status.HTTP_422_UNPROCESSABLE_ENTITY),
     )
 
 

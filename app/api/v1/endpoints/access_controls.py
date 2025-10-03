@@ -10,8 +10,6 @@ from app.api.v1.schemas.access_control import (
     AccessControlDeletionResponse,
     AccessControlDetailResponse,
     AccessControlMutationResponse,
-    AccessControlReorderRequest,
-    AccessControlReorderResponse,
     AccessControlTreeResponse,
     AccessControlUpdateRequest,
 )
@@ -72,19 +70,3 @@ def delete_access_control_item(
 ) -> AccessControlDeletionResponse:
     """删除指定的访问控制节点。"""
     return access_control_service.delete(db, item_id=item_id)
-
-
-@router.patch("/{item_id}/reorder", response_model=AccessControlReorderResponse)
-def reorder_access_control_item(
-    item_id: int,
-    payload: AccessControlReorderRequest,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
-) -> AccessControlReorderResponse:
-    """拖拽调整访问控制节点的顺序与层级。"""
-    return access_control_service.reorder(
-        db,
-        item_id=item_id,
-        target_parent_id=payload.target_parent_id,
-        target_index=payload.target_index,
-    )

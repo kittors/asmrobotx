@@ -31,6 +31,9 @@ class AccessControlService:
         "显示": "show",
         "隐藏": "hidden",
     }
+    _TYPE_FALLBACK_MAP = {
+        "directory": AccessControlTypeEnum.MENU.value,
+    }
 
     def list_tree(
         self,
@@ -109,11 +112,13 @@ class AccessControlService:
                 if include_map.get(child.id, False)
             ]
 
+            normalized_type = self._normalize_type_value(node.type)
+
             return {
                 "id": node.id,
                 "parent_id": node.parent_id,
                 "name": node.name,
-                "type": node.type,
+                "type": normalized_type,
                 "icon": node.icon,
                 "is_external": bool(node.is_external),
                 "permission_code": node.permission_code,
@@ -123,6 +128,9 @@ class AccessControlService:
                 "effective_display_status": effective_display,
                 "effective_enabled_status": effective_enabled,
                 "sort_order": node.sort_order,
+                "component_path": node.component_path,
+                "route_params": node.route_params or {},
+                "keep_alive": bool(node.keep_alive),
                 "children": children_payload,
             }
 
@@ -151,45 +159,36 @@ class AccessControlService:
         if parent_id in (0, "0"):
             parent_id = None
 
+        node_type = self._normalize_type_value(payload.get("type"))
+        payload["type"] = node_type
+
         if parent_id is not None:
             parent = access_control_crud.get(db, parent_id)
             if parent is None:
                 raise AppException("上级访问控制项不存在", HTTP_STATUS_NOT_FOUND)
-            if parent.type == AccessControlTypeEnum.BUTTON.value:
+            parent_type = self._normalize_type_value(parent.type)
+            if parent.type != parent_type:
+                parent.type = parent_type
+            if parent_type == AccessControlTypeEnum.BUTTON.value:
                 raise AppException("按钮类型不允许继续添加子项", HTTP_STATUS_BAD_REQUEST)
+        else:
+            parent = None
 
-        node_type = payload.get("type")
-        if node_type is None:
-            raise AppException("访问控制项类型必填", HTTP_STATUS_BAD_REQUEST)
-
-        if parent is None and node_type != AccessControlTypeEnum.DIRECTORY.value:
-            raise AppException("根节点必须是目录类型", HTTP_STATUS_BAD_REQUEST)
-
-        if parent is not None:
-            if node_type == AccessControlTypeEnum.DIRECTORY.value:
-                raise AppException("目录类型仅支持作为根节点存在", HTTP_STATUS_BAD_REQUEST)
-            if parent.type == AccessControlTypeEnum.DIRECTORY.value and node_type not in {
-                AccessControlTypeEnum.MENU.value,
-                AccessControlTypeEnum.BUTTON.value,
-            }:
-                raise AppException("目录下仅支持菜单或按钮类型", HTTP_STATUS_BAD_REQUEST)
-            if parent.type == AccessControlTypeEnum.MENU.value and node_type not in {
-                AccessControlTypeEnum.MENU.value,
-                AccessControlTypeEnum.BUTTON.value,
-            }:
-                raise AppException("菜单下仅支持子菜单或按钮类型", HTTP_STATUS_BAD_REQUEST)
+        if parent is None and node_type != AccessControlTypeEnum.MENU.value:
+            raise AppException("根节点必须是菜单类型", HTTP_STATUS_BAD_REQUEST)
 
         name_value = self._normalize_name(payload.get("name"))
         if not name_value:
             raise AppException("名称必填", HTTP_STATUS_BAD_REQUEST)
 
-        permission_code = payload.get("permission_code")
-        if not permission_code:
-            raise AppException("权限字符必填", HTTP_STATUS_BAD_REQUEST)
+        permission_code = self._normalize_permission_code(payload.get("permission_code"))
 
-        self._ensure_unique_permission_code(db, permission_code)
+        if node_type == AccessControlTypeEnum.BUTTON.value and not permission_code:
+            raise AppException("按钮必须提供权限字符", HTTP_STATUS_BAD_REQUEST)
 
-        self._validate_route_and_display(node_type, payload)
+        if permission_code:
+            self._ensure_unique_permission_code(db, permission_code)
+        self._normalize_payload_by_type(node_type, payload)
 
         if node_type == AccessControlTypeEnum.BUTTON.value:
             payload["is_external"] = False
@@ -197,6 +196,9 @@ class AccessControlService:
         enabled_status_value = payload.get("enabled_status")
         display_status_value = payload.get("display_status")
         route_path_value = payload.get("route_path")
+        component_path_value = payload.get("component_path")
+        route_params_value = payload.get("route_params")
+        keep_alive_value = bool(payload.get("keep_alive", False))
 
         db_obj = access_control_crud.create(
             db,
@@ -211,6 +213,9 @@ class AccessControlService:
                 "display_status": display_status_value,
                 "enabled_status": enabled_status_value,
                 "sort_order": payload.get("sort_order", 0),
+                "component_path": component_path_value,
+                "route_params": route_params_value,
+                "keep_alive": keep_alive_value,
             },
         )
 
@@ -228,24 +233,40 @@ class AccessControlService:
         if not name_value:
             raise AppException("名称必填", HTTP_STATUS_BAD_REQUEST)
 
-        permission_code = payload.get("permission_code")
-        if not permission_code:
-            raise AppException("权限字符必填", HTTP_STATUS_BAD_REQUEST)
-        self._ensure_unique_permission_code(db, permission_code, exclude_id=db_obj.id)
 
-        self._validate_route_and_display(db_obj.type, payload)
+        node_type = self._normalize_type_value(db_obj.type)
+        if db_obj.type != node_type:
+            db_obj.type = node_type
 
-        if db_obj.type == AccessControlTypeEnum.BUTTON.value:
+        permission_code_supplied = "permission_code" in payload
+        if permission_code_supplied:
+            permission_code = self._normalize_permission_code(payload.get("permission_code"))
+            if node_type == AccessControlTypeEnum.BUTTON.value and not permission_code:
+                raise AppException("按钮必须提供权限字符", HTTP_STATUS_BAD_REQUEST)
+            if permission_code:
+                self._ensure_unique_permission_code(db, permission_code, exclude_id=db_obj.id)
+        else:
+            permission_code = self._normalize_permission_code(db_obj.permission_code)
+            if node_type == AccessControlTypeEnum.BUTTON.value and not permission_code:
+                raise AppException("按钮必须提供权限字符", HTTP_STATUS_BAD_REQUEST)
+
+        self._normalize_payload_by_type(node_type, payload)
+
+        if node_type == AccessControlTypeEnum.BUTTON.value:
             payload["is_external"] = False
 
         route_path_value = payload.get("route_path")
+        component_path_value = payload.get("component_path")
+        route_params_value = payload.get("route_params")
+        keep_alive_value = bool(payload.get("keep_alive", db_obj.keep_alive))
 
         db_obj.name = name_value
         if "icon" in payload:
             db_obj.icon = payload["icon"]
         if "is_external" in payload:
             db_obj.is_external = bool(payload["is_external"])
-        db_obj.permission_code = permission_code
+        if permission_code_supplied:
+            db_obj.permission_code = permission_code
         if "route_path" in payload:
             db_obj.route_path = route_path_value
         if "display_status" in payload:
@@ -254,6 +275,11 @@ class AccessControlService:
             db_obj.enabled_status = payload["enabled_status"]
         if "sort_order" in payload:
             db_obj.sort_order = payload["sort_order"]
+        if "component_path" in payload:
+            db_obj.component_path = component_path_value
+        if "route_params" in payload:
+            db_obj.route_params = route_params_value
+        db_obj.keep_alive = keep_alive_value
 
         access_control_crud.save(db, db_obj)
         data = self._serialize_item(db_obj)
@@ -272,62 +298,15 @@ class AccessControlService:
         access_control_crud.soft_delete(db, db_obj)
         return create_response("删除访问控制项成功", None, HTTP_STATUS_OK)
 
-    def reorder(
-        self,
-        db: Session,
-        *,
-        item_id: int,
-        target_parent_id: Optional[int],
-        target_index: int,
-    ) -> dict[str, Any]:
-        """调整访问控制项的父级与排序位置。"""
-
-        if target_index < 0:
-            raise AppException("目标排序位置无效", HTTP_STATUS_BAD_REQUEST)
-
-        item = access_control_crud.get(db, item_id)
-        if item is None:
-            raise AppException("访问控制项不存在", HTTP_STATUS_NOT_FOUND)
-
-        normalized_parent_id = self._normalize_parent_id(target_parent_id)
-
-        if normalized_parent_id == item.id:
-            raise AppException("无法将节点移动到自身", HTTP_STATUS_BAD_REQUEST)
-
-        parent = None
-        if normalized_parent_id is not None:
-            parent = access_control_crud.get(db, normalized_parent_id)
-            if parent is None:
-                raise AppException("目标父级不存在", HTTP_STATUS_NOT_FOUND)
-
-        self._validate_move(item, parent)
-
-        if parent is not None:
-            self._ensure_no_cycle(item, parent)
-
-        old_parent_id = item.parent_id
-
-        # 先重新排序旧父级下的兄弟节点，移除当前节点
-        self._resequence_siblings(db, old_parent_id, excluding_id=item.id)
-
-        # 更新父级
-        item.parent_id = normalized_parent_id
-
-        # 将节点插入目标父级的指定位置
-        self._insert_into_target(db, item, parent, target_index)
-
-        db.commit()
-        db.refresh(item)
-        data = self._serialize_item(item)
-        return create_response("更新排序成功", data, HTTP_STATUS_OK)
-
     def _ensure_unique_permission_code(
         self,
         db: Session,
-        permission_code: str,
+        permission_code: Optional[str],
         *,
         exclude_id: Optional[int] = None,
     ) -> None:
+        if permission_code is None:
+            return
         existing = access_control_crud.get_by_permission_code(
             db,
             permission_code,
@@ -336,23 +315,53 @@ class AccessControlService:
         if existing is not None:
             raise AppException("权限字符已存在", HTTP_STATUS_CONFLICT)
 
-    def _validate_route_and_display(self, node_type: str, payload: Dict[str, Any]) -> None:
-        if node_type in {AccessControlTypeEnum.DIRECTORY.value, AccessControlTypeEnum.MENU.value}:
-            route_path = payload.get("route_path")
-            display_status = payload.get("display_status")
-            enabled_status = payload.get("enabled_status")
-            normalized_route = self._normalize_route_path(route_path)
-            if not normalized_route:
-                raise AppException("目录或菜单类型必须提供路由地址", HTTP_STATUS_BAD_REQUEST)
-            payload["route_path"] = normalized_route
-            payload["display_status"] = self._normalize_display_status(display_status)
-            payload["enabled_status"] = self._normalize_enabled_status_value(enabled_status)
+    def _normalize_payload_by_type(self, node_type: str, payload: Dict[str, Any]) -> None:
+        if node_type == AccessControlTypeEnum.MENU.value:
+            payload["display_status"] = self._normalize_display_status(payload.get("display_status"))
+            payload["enabled_status"] = self._normalize_enabled_status_value(payload.get("enabled_status"))
+            payload["route_path"] = self._normalize_route_path(payload.get("route_path"))
+            payload["component_path"] = self._normalize_optional_component_path(payload.get("component_path"))
+            payload["route_params"] = self._normalize_route_params(payload.get("route_params"))
+            payload["keep_alive"] = bool(payload.get("keep_alive", False))
         else:
             payload["enabled_status"] = self._normalize_enabled_status_value(payload.get("enabled_status"))
             if "display_status" in payload and payload["display_status"] is not None:
                 payload["display_status"] = self._normalize_display_status(payload["display_status"])
             if "route_path" in payload:
                 payload["route_path"] = self._normalize_route_path(payload["route_path"])
+            payload["component_path"] = None
+            payload["route_params"] = {}
+            payload["keep_alive"] = False
+
+    def _normalize_optional_component_path(self, component_path: Optional[str]) -> Optional[str]:
+        if component_path is None:
+            return None
+        normalized = component_path.strip()
+        return normalized or None
+
+    def _normalize_route_params(self, route_params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if route_params is None:
+            return {}
+        if not isinstance(route_params, dict):
+            raise AppException("路由参数必须为对象", HTTP_STATUS_BAD_REQUEST)
+        return route_params
+
+    def _normalize_type_value(self, node_type: Optional[Any]) -> str:
+        if isinstance(node_type, AccessControlTypeEnum):
+            value = node_type.value
+        elif node_type is None:
+            value = AccessControlTypeEnum.MENU.value
+        else:
+            value = str(node_type)
+
+        normalized = value.strip().lower()
+        normalized = self._TYPE_FALLBACK_MAP.get(normalized, normalized)
+        if normalized not in {
+            AccessControlTypeEnum.MENU.value,
+            AccessControlTypeEnum.BUTTON.value,
+        }:
+            raise AppException("访问控制项类型无效", HTTP_STATUS_BAD_REQUEST)
+        return normalized
 
     def _normalize_status(self, enabled_status: Optional[str]) -> Optional[str]:
         if enabled_status is None:
@@ -401,91 +410,18 @@ class AccessControlService:
         normalized = route_path.strip()
         return normalized or None
 
-    def _normalize_parent_id(self, parent_id: Optional[int]) -> Optional[int]:
-        if parent_id in (0, "0"):
+    def _normalize_permission_code(self, permission_code: Optional[Any]) -> Optional[str]:
+        if permission_code is None:
             return None
-        return parent_id
-
-    def _validate_move(self, item: AccessControlItem, parent: Optional[AccessControlItem]) -> None:
-        if parent is None:
-            if item.type != AccessControlTypeEnum.DIRECTORY.value:
-                raise AppException("仅目录类型可以作为顶层节点", HTTP_STATUS_BAD_REQUEST)
-            return
-
-        if parent.type == AccessControlTypeEnum.BUTTON.value:
-            raise AppException("按钮类型不允许拥有下级节点", HTTP_STATUS_BAD_REQUEST)
-
-        if item.type == AccessControlTypeEnum.DIRECTORY.value:
-            raise AppException("目录类型仅能存在于顶层", HTTP_STATUS_BAD_REQUEST)
-
-        if item.type == AccessControlTypeEnum.MENU.value and parent.type not in {
-            AccessControlTypeEnum.DIRECTORY.value,
-            AccessControlTypeEnum.MENU.value,
-        }:
-            raise AppException("菜单只能移动到目录或菜单下", HTTP_STATUS_BAD_REQUEST)
-
-        if item.type == AccessControlTypeEnum.BUTTON.value and parent.type not in {
-            AccessControlTypeEnum.DIRECTORY.value,
-            AccessControlTypeEnum.MENU.value,
-        }:
-            raise AppException("按钮只能移动到目录或菜单下", HTTP_STATUS_BAD_REQUEST)
-
-    def _ensure_no_cycle(self, item: AccessControlItem, parent: AccessControlItem) -> None:
-        current = parent
-        while current is not None:
-            if current.id == item.id:
-                raise AppException("不能将节点移动到其子节点下", HTTP_STATUS_BAD_REQUEST)
-            current = current.parent
-
-    def _resequence_siblings(
-        self,
-        db: Session,
-        parent_id: Optional[int],
-        *,
-        excluding_id: Optional[int] = None,
-    ) -> None:
-        if parent_id is None:
-            query = db.query(AccessControlItem).filter(AccessControlItem.parent_id.is_(None))
-        else:
-            query = db.query(AccessControlItem).filter(AccessControlItem.parent_id == parent_id)
-
-        if hasattr(AccessControlItem, "is_deleted"):
-            query = query.filter(AccessControlItem.is_deleted.is_(False))
-
-        siblings = query.order_by(AccessControlItem.sort_order, AccessControlItem.id).all()
-        filtered = [s for s in siblings if excluding_id is None or s.id != excluding_id]
-        for index, sibling in enumerate(filtered):
-            sibling.sort_order = index
-
-    def _insert_into_target(
-        self,
-        db: Session,
-        item: AccessControlItem,
-        parent: Optional[AccessControlItem],
-        target_index: int,
-    ) -> None:
-        if parent is None:
-            query = db.query(AccessControlItem).filter(AccessControlItem.parent_id.is_(None))
-        else:
-            query = db.query(AccessControlItem).filter(AccessControlItem.parent_id == parent.id)
-
-        if hasattr(AccessControlItem, "is_deleted"):
-            query = query.filter(AccessControlItem.is_deleted.is_(False))
-
-        siblings = [s for s in query.order_by(AccessControlItem.sort_order, AccessControlItem.id).all() if s.id != item.id]
-
-        insert_index = min(target_index, len(siblings))
-        siblings.insert(insert_index, item)
-
-        for index, sibling in enumerate(siblings):
-            sibling.sort_order = index
+        normalized = str(permission_code).strip()
+        return normalized or None
 
     def _serialize_item(self, item: AccessControlItem) -> Dict[str, Any]:
         return {
             "id": item.id,
             "parent_id": item.parent_id,
             "name": item.name,
-            "type": item.type,
+            "type": self._normalize_type_value(item.type),
             "icon": item.icon,
             "is_external": bool(item.is_external),
             "permission_code": item.permission_code,
@@ -493,6 +429,9 @@ class AccessControlService:
             "display_status": item.display_status,
             "enabled_status": item.enabled_status,
             "sort_order": item.sort_order,
+            "component_path": item.component_path,
+            "route_params": item.route_params or {},
+            "keep_alive": bool(item.keep_alive),
             "create_time": item.create_time,
             "update_time": item.update_time,
         }

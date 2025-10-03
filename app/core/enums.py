@@ -17,6 +17,5 @@ class PermissionTypeEnum(str, Enum):
 class AccessControlTypeEnum(str, Enum):
     """访问控制项在前端渲染时的类型分类。"""
 
-    DIRECTORY = "directory"
     MENU = "menu"
     BUTTON = "button"

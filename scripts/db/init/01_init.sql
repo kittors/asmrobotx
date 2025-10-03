@@ -49,6 +49,22 @@ CREATE TABLE IF NOT EXISTS role_permissions (
     PRIMARY KEY (role_id, permission_id)
 );
 
+-- ---------------------------------------------------------------------------
+-- 字典表：用于维护前端通用的下拉/图标等可配置选项，便于通过 type_code 分类检索。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS dictionary_entries (
+    id SERIAL PRIMARY KEY,
+    type_code VARCHAR(100) NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    value VARCHAR(100) NOT NULL,
+    description VARCHAR(255),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT uq_dictionary_entries_type_value UNIQUE (type_code, value)
+);
+
 INSERT INTO organizations (name)
 VALUES ('研发部')
 ON CONFLICT (name) DO NOTHING;
@@ -86,3 +102,16 @@ INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE r.name = 'user' AND p.name IN ('view_dashboard', 'edit_self_profile')
 ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- 图标字典：为前端图标选择器提供常用候选项，可持续扩充。
+-- ---------------------------------------------------------------------------
+INSERT INTO dictionary_entries (type_code, label, value, description, sort_order)
+VALUES
+    ('icon_list', '工具箱', 'tool-case', '工具图标', 1),
+    ('icon_list', '设置', 'settings', '设置图标', 2),
+    ('icon_list', '搜索', 'search', '通用搜索图标', 3),
+    ('icon_list', '外链', 'link', '外链/跳转图标', 4),
+    ('icon_list', '地图定位', 'map-pinned', '地理定位图标', 5),
+    ('icon_list', '菜单', 'menu', '菜单/列表图标', 6)
+ON CONFLICT (type_code, value) DO NOTHING;

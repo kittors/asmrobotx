@@ -108,7 +108,7 @@ pytest
 | `DATABASE_*` | PostgreSQL 连接信息 |
 | `REDIS_*` | Redis 连接信息 |
 | `JWT_SECRET_KEY` | JWT 签名密钥 |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 过期时间（分钟） |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 基础过期时间（分钟，滑动过期窗口） |
 | `LOG_LEVEL` | 日志级别 |
 | `APP_PORT` / `POSTGRES_HOST_PORT` / `REDIS_HOST_PORT` | Docker 暴露的宿主机端口 |
 
@@ -126,7 +126,10 @@ pytest
 {
   "msg": "操作描述",
   "data": {"...": "..."},
-  "code": 200
+  "code": 200,
+  "meta": {
+    "access_token": "<可选，刷新后的访问令牌>"
+  }
 }
 ```
 

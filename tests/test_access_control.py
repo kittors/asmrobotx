@@ -17,32 +17,37 @@ def test_access_control_crud_flow(client: TestClient):
     token = _get_token(client)
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 创建根目录
-    create_dir_resp = client.post(
+    # 创建根菜单
+    create_root_resp = client.post(
         "/api/v1/access-controls",
         headers=headers,
         json={
             "name": "系统管理",
-            "type": "directory",
-            "permission_code": "system:manage",
-            "route_path": "/system",
+            "type": "menu",
             "display_status": "show",
             "enabled_status": "enabled",
             "icon": "icon-settings",
             "sort_order": 1,
+            "route_params": {"redirect": "/system/menu"},
+            "keep_alive": True,
         },
     )
-    assert create_dir_resp.status_code == 200
-    dir_payload = create_dir_resp.json()
-    assert dir_payload["code"] == 200
-    dir_id = dir_payload["data"]["id"]
+    assert create_root_resp.status_code == 200
+    root_payload = create_root_resp.json()
+    assert root_payload["code"] == 200
+    root_menu_id = root_payload["data"]["id"]
+    assert root_payload["data"]["route_path"] is None
+    assert root_payload["data"]["component_path"] is None
+    refreshed_token = create_root_resp.headers.get("X-Access-Token")
+    assert refreshed_token
+    assert root_payload.get("meta", {}).get("access_token") == refreshed_token
 
     # 创建子菜单
     create_menu_resp = client.post(
         "/api/v1/access-controls",
         headers=headers,
         json={
-            "parent_id": dir_id,
+            "parent_id": root_menu_id,
             "name": "菜单管理",
             "type": "menu",
             "permission_code": "system:menu:list",
@@ -51,6 +56,9 @@ def test_access_control_crud_flow(client: TestClient):
             "enabled_status": "enabled",
             "icon": "icon-dashboard",
             "sort_order": 2,
+            "component_path": "views/system/menu/index.vue",
+            "route_params": {"title": "菜单管理"},
+            "keep_alive": False,
         },
     )
     assert create_menu_resp.status_code == 200
@@ -62,7 +70,7 @@ def test_access_control_crud_flow(client: TestClient):
     list_resp = client.get("/api/v1/access-controls", headers=headers)
     assert list_resp.status_code == 200
     tree_data = list_resp.json()["data"]
-    assert any(node["id"] == dir_id for node in tree_data)
+    assert any(node["id"] == root_menu_id for node in tree_data)
 
     # 更新子菜单状态为停用
     update_resp = client.put(
@@ -70,12 +78,14 @@ def test_access_control_crud_flow(client: TestClient):
         headers=headers,
         json={
             "name": "菜单管理",
-            "permission_code": "system:menu:list",
             "route_path": "/system/menu/index",
             "display_status": "show",
             "enabled_status": "disabled",
             "icon": "icon-dashboard",
             "sort_order": 5,
+            "component_path": "views/system/menu/index.vue",
+            "route_params": {"title": "菜单管理"},
+            "keep_alive": True,
         },
     )
     assert update_resp.status_code == 200
@@ -102,12 +112,12 @@ def test_access_control_crud_flow(client: TestClient):
     assert delete_menu_resp.status_code == 200
     assert delete_menu_resp.json()["msg"] == "删除访问控制项成功"
 
-    # 有子项的目录不允许删除
+    # 有子项的菜单不允许删除
     client.post(
         "/api/v1/access-controls",
         headers=headers,
         json={
-            "parent_id": dir_id,
+            "parent_id": root_menu_id,
             "name": "按钮A",
             "type": "button",
             "permission_code": "system:button:a",
@@ -115,9 +125,9 @@ def test_access_control_crud_flow(client: TestClient):
             "sort_order": 1,
         },
     )
-    delete_dir_resp = client.delete(f"/api/v1/access-controls/{dir_id}", headers=headers)
-    assert delete_dir_resp.status_code == 400
-    assert delete_dir_resp.json()["msg"] == "该项包含子项，无法删除"
+    delete_root_resp = client.delete(f"/api/v1/access-controls/{root_menu_id}", headers=headers)
+    assert delete_root_resp.status_code == 400
+    assert delete_root_resp.json()["msg"] == "该项包含子项，无法删除"
 
     # 清理按钮后删除目录
     tree_resp = client.get("/api/v1/access-controls", headers=headers)
@@ -129,7 +139,7 @@ def test_access_control_crud_flow(client: TestClient):
     )
     client.delete(f"/api/v1/access-controls/{button_id}", headers=headers)
 
-    final_delete_resp = client.delete(f"/api/v1/access-controls/{dir_id}", headers=headers)
+    final_delete_resp = client.delete(f"/api/v1/access-controls/{root_menu_id}", headers=headers)
     assert final_delete_resp.status_code == 200
     assert final_delete_resp.json()["msg"] == "删除访问控制项成功"
 
@@ -145,119 +155,3 @@ def test_dictionary_endpoint_returns_seed_items(client: TestClient):
     assert payload["code"] == 200
     values = {item["value"] for item in payload["data"]}
     assert {"show", "hidden"}.issubset(values)
-
-
-def test_access_control_reorder_flow(client: TestClient):
-    """验证拖拽排序接口的行为，包括同级与跨级移动。"""
-    token = _get_token(client)
-    headers = {"Authorization": f"Bearer {token}"}
-
-    # 创建两个根目录
-    dir_a = client.post(
-        "/api/v1/access-controls",
-        headers=headers,
-        json={
-            "name": "目录A",
-            "type": "directory",
-            "permission_code": "ac:dir:a",
-            "route_path": "/a",
-            "display_status": "show",
-            "enabled_status": "enabled",
-        },
-    ).json()["data"]
-    dir_b = client.post(
-        "/api/v1/access-controls",
-        headers=headers,
-        json={
-            "name": "目录B",
-            "type": "directory",
-            "permission_code": "ac:dir:b",
-            "route_path": "/b",
-            "display_status": "show",
-            "enabled_status": "enabled",
-        },
-    ).json()["data"]
-
-    # 在目录 A 下创建两个菜单和一个按钮
-    menu_a1 = client.post(
-        "/api/v1/access-controls",
-        headers=headers,
-        json={
-            "parent_id": dir_a["id"],
-            "name": "菜单A1",
-            "type": "menu",
-            "permission_code": "ac:menu:a1",
-            "route_path": "/a/menu1",
-            "display_status": "show",
-            "enabled_status": "enabled",
-        },
-    ).json()["data"]
-    menu_a2 = client.post(
-        "/api/v1/access-controls",
-        headers=headers,
-        json={
-            "parent_id": dir_a["id"],
-            "name": "菜单A2",
-            "type": "menu",
-            "permission_code": "ac:menu:a2",
-            "route_path": "/a/menu2",
-            "display_status": "show",
-            "enabled_status": "enabled",
-        },
-    ).json()["data"]
-    button_a = client.post(
-        "/api/v1/access-controls",
-        headers=headers,
-        json={
-            "parent_id": dir_a["id"],
-            "name": "按钮A",
-            "type": "button",
-            "permission_code": "ac:button:a",
-            "enabled_status": "enabled",
-        },
-    ).json()["data"]
-
-    # 将菜单A2移动到同级首位
-    reorder_same_parent = client.patch(
-        f"/api/v1/access-controls/{menu_a2['id']}/reorder",
-        headers=headers,
-        json={"target_parent_id": dir_a["id"], "target_index": 0},
-    )
-    assert reorder_same_parent.status_code == 200
-    assert reorder_same_parent.json()["data"]["sort_order"] == 0
-
-    # 将按钮移动到菜单A1下
-    reorder_to_child = client.patch(
-        f"/api/v1/access-controls/{button_a['id']}/reorder",
-        headers=headers,
-        json={"target_parent_id": menu_a1["id"], "target_index": 0},
-    )
-    assert reorder_to_child.status_code == 200
-    assert reorder_to_child.json()["data"]["parent_id"] == menu_a1["id"]
-
-    # 将菜单A1移动到目录B下，作为其子菜单
-    reorder_cross_parent = client.patch(
-        f"/api/v1/access-controls/{menu_a1['id']}/reorder",
-        headers=headers,
-        json={"target_parent_id": dir_b["id"], "target_index": 0},
-    )
-    assert reorder_cross_parent.status_code == 200
-    assert reorder_cross_parent.json()["data"]["parent_id"] == dir_b["id"]
-
-    # 尝试非法操作：将目录移动到菜单下，期望 400
-    invalid_move_directory = client.patch(
-        f"/api/v1/access-controls/{dir_b['id']}/reorder",
-        headers=headers,
-        json={"target_parent_id": menu_a1["id"], "target_index": 0},
-    )
-    assert invalid_move_directory.status_code == 400
-    assert invalid_move_directory.json()["msg"] == "目录类型仅能存在于顶层"
-
-    # 尝试非法操作：将菜单移动到按钮下，期望 400
-    invalid_move_to_button = client.patch(
-        f"/api/v1/access-controls/{menu_a2['id']}/reorder",
-        headers=headers,
-        json={"target_parent_id": button_a["id"], "target_index": 0},
-    )
-    assert invalid_move_to_button.status_code == 400
-    assert invalid_move_to_button.json()["msg"] == "按钮类型不允许拥有下级节点"

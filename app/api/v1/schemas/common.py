@@ -1,6 +1,6 @@
 """通用响应封装模型。"""
 
-from typing import Generic, Optional, TypeVar
+from typing import Any, Dict, Generic, Optional, TypeVar
 
 from pydantic import BaseModel
 
@@ -13,3 +13,4 @@ class ResponseEnvelope(BaseModel, Generic[T]):
     msg: str
     data: Optional[T] = None
     code: int
+    meta: Optional[Dict[str, Any]] = None

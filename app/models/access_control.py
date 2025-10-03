@@ -1,8 +1,8 @@
-"""访问控制项模型：用于描述目录、菜单与按钮等权限节点。"""
+"""访问控制项模型：用于描述菜单与按钮等权限节点。"""
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.enums import AccessControlTypeEnum
@@ -23,14 +23,17 @@ class AccessControlItem(TimestampMixin, SoftDeleteMixin, Base):
         nullable=True,
     )
     name: Mapped[str] = mapped_column(String(100), index=True)
-    type: Mapped[str] = mapped_column(String(20), default=AccessControlTypeEnum.DIRECTORY.value)
+    type: Mapped[str] = mapped_column(String(20), default=AccessControlTypeEnum.MENU.value)
     icon: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     is_external: Mapped[bool] = mapped_column(Boolean, default=False)
-    permission_code: Mapped[str] = mapped_column(String(100), index=True)
+    permission_code: Mapped[Optional[str]] = mapped_column(String(100), index=True, nullable=True)
     route_path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     display_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     enabled_status: Mapped[str] = mapped_column(String(50), default="enabled")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    component_path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    route_params: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    keep_alive: Mapped[bool] = mapped_column(Boolean, default=False)
 
     parent: Mapped[Optional["AccessControlItem"]] = relationship(
         "AccessControlItem",

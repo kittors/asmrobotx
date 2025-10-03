@@ -1,5 +1,6 @@
 """安全模块：提供密码哈希、验证以及 JWT 令牌的生成/解析能力。"""
 
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -8,6 +9,9 @@ from jose import JWTError, jwt
 
 from .config import get_settings
 from .logger import logger
+
+
+_refreshed_token_ctx: ContextVar[Optional[str]] = ContextVar("refreshed_token", default=None)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -30,6 +34,18 @@ def create_access_token(subject: Dict[str, Any], expires_delta: Optional[timedel
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     return encoded_jwt
+
+
+def store_refreshed_token(token: Optional[str]) -> None:
+    """记录当前请求中新生成的访问令牌，供响应阶段附带返回。"""
+    _refreshed_token_ctx.set(token)
+
+
+def consume_refreshed_token() -> Optional[str]:
+    """获取并清除当前请求上下文中的刷新令牌。"""
+    token = _refreshed_token_ctx.get()
+    _refreshed_token_ctx.set(None)
+    return token
 
 
 def decode_token(token: str) -> Optional[Dict[str, Any]]:

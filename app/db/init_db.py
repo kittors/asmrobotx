@@ -125,10 +125,6 @@ def _ensure_dictionary_entries(db: Session) -> None:
     """初始化系统所需的字典项，例如图标与状态集合。"""
 
     seed_dictionary = {
-        "icon_list": [
-            {"value": "icon-dashboard", "label": "仪表盘", "description": "仪表盘图标"},
-            {"value": "icon-settings", "label": "设置", "description": "设置图标"},
-        ],
         "display_status": [
             {"value": "show", "label": "显示"},
             {"value": "hidden", "label": "隐藏"},
