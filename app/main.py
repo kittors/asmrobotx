@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
@@ -17,6 +18,15 @@ setup_logging()
 settings = get_settings()
 
 app = FastAPI(title=settings.project_name, debug=settings.debug)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Access-Token"],
+)
 
 
 @app.on_event("startup")

@@ -3,17 +3,20 @@
 from collections.abc import Generator
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Response, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.constants import ACCESS_TOKEN_TYPE
-from app.core.security import create_access_token, decode_token, store_refreshed_token
+from app.core.config import get_settings
+from app.core.security import decode_token, store_current_session_id
+from app.core.session import touch_session
 from app.crud.users import user_crud
 from app.db.session import SessionLocal
 from app.models.user import User
 
 security_scheme = HTTPBearer(auto_error=False)
+settings = get_settings()
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -26,11 +29,11 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_current_user(
-    response: Response,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
     db: Session = Depends(get_db),
 ) -> User:
     """解析 ``Authorization`` 头部并返回当前认证用户，不存在或非法时抛出 401。"""
+    store_current_session_id(None)
     if not credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少认证信息")
 
@@ -49,9 +52,15 @@ def get_current_user(
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
 
-    refreshed_token = create_access_token({"user_id": user.id, "username": user.username})
-    response.headers["X-Access-Token"] = refreshed_token
-    store_refreshed_token(refreshed_token)
+    session_id = payload.get("sid")
+    if session_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token 无效")
+
+    ttl_seconds = max(settings.access_token_expire_minutes, 1) * 60
+    if not touch_session(session_id, user.id, ttl_seconds):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token 无效或已过期")
+
+    store_current_session_id(session_id)
 
     return user
 

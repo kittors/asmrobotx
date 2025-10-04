@@ -8,6 +8,11 @@ class RoleEnum(str, Enum):
     USER = "user"
 
 
+class RoleStatusEnum(str, Enum):
+    NORMAL = "normal"
+    DISABLED = "disabled"
+
+
 class PermissionTypeEnum(str, Enum):
     ROUTE = "route"
     MENU = "menu"

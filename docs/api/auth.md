@@ -67,7 +67,10 @@
     "access_token": "<JWT Token>",
     "token_type": "bearer"
   },
-  "code": 200
+  "code": 200,
+  "meta": {
+    "access_token": "<最新 JWT Token>"
+  }
 }
 ```
 
@@ -76,8 +79,8 @@
 - `422` 请求体验证失败。
 
 ### 备注
-- 令牌的基础有效期由环境变量 `ACCESS_TOKEN_EXPIRE_MINUTES` 控制（默认 60 分钟），但只要在有效期内调用任意受保护接口，系统会自动刷新令牌并通过响应头 `X-Access-Token` 及响应体 `meta.access_token` 返回最新 Token，实现滑动过期。
-- 客户端应在每次请求后使用新的 Token 覆盖本地缓存，以确保会话持续有效。
+- 令牌的基础有效期由环境变量 `ACCESS_TOKEN_EXPIRE_MINUTES` 控制（默认 60 分钟），后端会在 Redis（或内存回退）中维护滑动会话，只要在该时间窗口内持续调用受保护接口，会话就会自动续期，无需替换本地 Token。
+- 若在指定时间内无任何请求，会话将失效，后续请求会返回 `401` 需重新登录。
 - 所有需要认证的接口均要求在请求头携带 `Authorization: Bearer <access_token>`。
 
 ---

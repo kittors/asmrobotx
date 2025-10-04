@@ -18,6 +18,8 @@ from app.core.constants import HTTP_STATUS_OK
 from app.core.responses import create_response
 from app.services.auth_service import auth_service
 from app.models.user import User
+from app.core.security import get_current_session_id
+from app.core.session import delete_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -48,6 +50,9 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 @router.post("/logout", response_model=LogoutResponse)
 def logout(current_user: User = Depends(get_current_active_user)) -> LogoutResponse:
     """退出登录，前端需删除本地缓存的令牌。"""
+    session_id = get_current_session_id()
+    if session_id:
+        delete_session(session_id)
     return create_response("退出登录成功", None, HTTP_STATUS_OK)
 
 

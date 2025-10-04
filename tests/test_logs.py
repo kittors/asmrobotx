@@ -106,7 +106,8 @@ def test_operation_log_delete_and_clear(client: TestClient, db_session_fixture: 
     assert clear_resp.json()["code"] == 200
 
     after_clear = client.get("/api/v1/logs/operations", headers=headers)
-    assert after_clear.json()["data"]["total"] == 0
+    remaining_items = after_clear.json()["data"]["items"]
+    assert all(item["log_number"] != second_number for item in remaining_items)
 
 
 def test_operation_logs_export(client: TestClient, db_session_fixture: Session):

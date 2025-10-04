@@ -9,6 +9,7 @@ from app.core.constants import (
     DEFAULT_ORGANIZATION_NAME,
     DEFAULT_USER_ROLE,
 )
+from app.core.enums import RoleStatusEnum
 from app.core.security import get_password_hash, verify_password
 from app.db import session as db_session
 from app.models.base import Base
@@ -80,20 +81,38 @@ def _ensure_roles(db: Session, permissions: dict[str, Permission]) -> tuple[Role
     """Create the admin and user roles and map their permissions."""
     admin_role = db.query(Role).filter(Role.name == ADMIN_ROLE).first()
     if admin_role is None:
-        admin_role = Role(name=ADMIN_ROLE)
+        admin_role = Role(
+            name=ADMIN_ROLE,
+            role_key=ADMIN_ROLE,
+            status=RoleStatusEnum.NORMAL.value,
+            sort_order=1,
+        )
         db.add(admin_role)
         db.flush()
     elif getattr(admin_role, "is_deleted", False):
         admin_role.is_deleted = False
+    if not getattr(admin_role, "role_key", None):
+        admin_role.role_key = ADMIN_ROLE
+    if not getattr(admin_role, "status", None):
+        admin_role.status = RoleStatusEnum.NORMAL.value
     admin_role.permissions = list(permissions.values())
 
     user_role = db.query(Role).filter(Role.name == DEFAULT_USER_ROLE).first()
     if user_role is None:
-        user_role = Role(name=DEFAULT_USER_ROLE)
+        user_role = Role(
+            name=DEFAULT_USER_ROLE,
+            role_key=DEFAULT_USER_ROLE,
+            status=RoleStatusEnum.NORMAL.value,
+            sort_order=2,
+        )
         db.add(user_role)
         db.flush()
     elif getattr(user_role, "is_deleted", False):
         user_role.is_deleted = False
+    if not getattr(user_role, "role_key", None):
+        user_role.role_key = DEFAULT_USER_ROLE
+    if not getattr(user_role, "status", None):
+        user_role.status = RoleStatusEnum.NORMAL.value
     user_role.permissions = [permissions["view_dashboard"], permissions["edit_self_profile"]]
 
     return admin_role, user_role

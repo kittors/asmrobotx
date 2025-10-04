@@ -18,7 +18,17 @@ class UserService:
             }
 
         roles = [role.name for role in user.roles]
-        permissions = sorted({perm.name for role in user.roles for perm in role.permissions})
+        permission_codes: set[str] = set()
+        for role in user.roles:
+            permission_codes.update(
+                perm.name for perm in role.permissions if getattr(perm, "name", None)
+            )
+            permission_codes.update(
+                item.permission_code
+                for item in getattr(role, "access_controls", [])
+                if getattr(item, "permission_code", None)
+            )
+        permissions = sorted(code for code in permission_codes if code)
 
         data = {
             "user_id": user.id,

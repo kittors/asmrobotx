@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS organizations (
 CREATE TABLE IF NOT EXISTS roles (
     id SERIAL PRIMARY KEY,
     name VARCHAR(50) UNIQUE NOT NULL,
+    role_key VARCHAR(100) UNIQUE NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(20) NOT NULL DEFAULT 'normal',
+    remark VARCHAR(255),
     create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
@@ -86,6 +90,12 @@ CREATE TABLE IF NOT EXISTS access_control_items (
     CONSTRAINT uq_access_control_items_permission_code UNIQUE (permission_code)
 );
 
+CREATE TABLE IF NOT EXISTS role_access_controls (
+    role_id INTEGER REFERENCES roles(id) ON DELETE CASCADE,
+    access_control_id INTEGER REFERENCES access_control_items(id) ON DELETE CASCADE,
+    PRIMARY KEY (role_id, access_control_id)
+);
+
 CREATE TABLE IF NOT EXISTS operation_logs (
     id SERIAL PRIMARY KEY,
     log_number VARCHAR(32) UNIQUE NOT NULL,
@@ -131,8 +141,12 @@ INSERT INTO organizations (name)
 VALUES ('研发部')
 ON CONFLICT (name) DO NOTHING;
 
-INSERT INTO roles (name) VALUES ('admin') ON CONFLICT (name) DO NOTHING;
-INSERT INTO roles (name) VALUES ('user') ON CONFLICT (name) DO NOTHING;
+INSERT INTO roles (name, role_key, sort_order, status)
+VALUES ('admin', 'admin', 1, 'normal')
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO roles (name, role_key, sort_order, status)
+VALUES ('user', 'user', 2, 'normal')
+ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO permissions (name, description, type)
 VALUES

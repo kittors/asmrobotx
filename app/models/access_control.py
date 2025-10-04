@@ -6,7 +6,7 @@ from sqlalchemy import Boolean, ForeignKey, Integer, JSON, String, UniqueConstra
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.enums import AccessControlTypeEnum
-from app.models.base import Base, SoftDeleteMixin, TimestampMixin
+from app.models.base import Base, SoftDeleteMixin, TimestampMixin, role_access_controls
 
 
 class AccessControlItem(TimestampMixin, SoftDeleteMixin, Base):
@@ -43,4 +43,9 @@ class AccessControlItem(TimestampMixin, SoftDeleteMixin, Base):
     children: Mapped[List["AccessControlItem"]] = relationship(
         "AccessControlItem",
         back_populates="parent",
+    )
+    roles: Mapped[List["Role"]] = relationship(
+        "Role",
+        secondary=role_access_controls,
+        back_populates="access_controls",
     )

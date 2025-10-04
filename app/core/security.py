@@ -12,6 +12,7 @@ from .logger import logger
 
 
 _refreshed_token_ctx: ContextVar[Optional[str]] = ContextVar("refreshed_token", default=None)
+_session_id_ctx: ContextVar[Optional[str]] = ContextVar("session_id", default=None)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -50,8 +51,23 @@ def decode_token(token: str) -> Optional[Dict[str, Any]]:
     """解析 JWT 并在合法时返回其中的业务载荷，否则返回 ``None``。"""
     settings = get_settings()
     try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+            options={"verify_exp": False},
+        )
         return payload
     except JWTError as exc:  # pragma: no cover - logging side effect
         logger.warning("Failed to decode JWT: %s", exc)
         return None
+
+
+def store_current_session_id(session_id: Optional[str]) -> None:
+    """保存当前请求上下文中的会话 ID。"""
+    _session_id_ctx.set(session_id)
+
+
+def get_current_session_id() -> Optional[str]:
+    """获取当前请求上下文中的会话 ID。"""
+    return _session_id_ctx.get()

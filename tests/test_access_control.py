@@ -39,10 +39,12 @@ def test_access_control_crud_flow(client: TestClient):
     assert root_payload["data"]["route_path"] is None
     assert root_payload["data"]["component_path"] is None
     refreshed_token = create_root_resp.headers.get("X-Access-Token")
-    assert refreshed_token
     meta_payload = root_payload.get("meta") or {}
-    if meta_payload:
-        assert meta_payload.get("access_token") == refreshed_token
+    if refreshed_token:
+        if meta_payload:
+            assert meta_payload.get("access_token") == refreshed_token
+    else:
+        assert meta_payload.get("access_token") is None
 
     # 创建子菜单
     create_menu_resp = client.post(

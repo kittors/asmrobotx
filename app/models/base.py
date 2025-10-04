@@ -62,3 +62,10 @@ role_permissions = Table(
     Column("role_id", ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True, index=True),
     Column("permission_id", ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True, index=True),
 )
+
+role_access_controls = Table(
+    "role_access_controls",
+    Base.metadata,
+    Column("role_id", ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True, index=True),
+    Column("access_control_id", ForeignKey("access_control_items.id", ondelete="CASCADE"), primary_key=True, index=True),
+)

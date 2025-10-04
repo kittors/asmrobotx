@@ -20,10 +20,12 @@ from app.core.security import create_access_token, get_password_hash, verify_pas
 from app.crud.organizations import organization_crud
 from app.crud.roles import role_crud
 from app.crud.users import user_crud
-from app.core.enums import RoleEnum
+from app.core.enums import RoleEnum, RoleStatusEnum
 from app.models.role import Role
 from app.models.user import User
 from app.services.log_service import log_service
+from app.core.session import create_session, delete_session
+from app.core.config import get_settings
 
 
 class AuthService:
@@ -42,6 +44,13 @@ class AuthService:
         default_role = role_crud.get_by_name(db, DEFAULT_USER_ROLE)
         if default_role is None:
             default_role = self._create_default_role(db)
+        else:
+            if not getattr(default_role, "role_key", None):
+                default_role.role_key = RoleEnum.USER.value
+            if not getattr(default_role, "status", None):
+                default_role.status = RoleStatusEnum.NORMAL.value
+            db.add(default_role)
+            db.flush()
 
         hashed_password = get_password_hash(password)
         user = user_crud.create_with_roles(
@@ -85,7 +94,10 @@ class AuthService:
             )
             raise AppException(msg="用户名或密码错误", code=HTTP_STATUS_UNAUTHORIZED)
 
-        token_payload = {"user_id": user.id, "username": user.username}
+        ttl_seconds = max(get_settings().access_token_expire_minutes, 1) * 60
+        session_id = create_session(user.id, ttl_seconds)
+
+        token_payload = {"user_id": user.id, "username": user.username, "sid": session_id}
         access_token = create_access_token(token_payload)
 
         self._record_login_log(
@@ -108,7 +120,12 @@ class AuthService:
 
     def _create_default_role(self, db: Session) -> Role:
         """在默认角色缺失时动态创建，确保注册流程可继续。"""
-        role = Role(name=RoleEnum.USER.value)
+        role = Role(
+            name=RoleEnum.USER.value,
+            role_key=RoleEnum.USER.value,
+            status=RoleStatusEnum.NORMAL.value,
+            sort_order=2,
+        )
         db.add(role)
         db.commit()
         db.refresh(role)

@@ -1,21 +1,52 @@
 """配置模块：负责加载和缓存基于环境变量的应用设置。"""
 
+import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# 探测项目根目录并按优先级加载第一个可用的环境文件，保证本地环境可以覆盖默认配置。 
-# 一旦找到 `.env`、`.env.development` 或 `.env.production` 中的任意一个就停止继续查找。
+# 探测项目根目录并加载环境文件，支持通过 ENV_FILE/ENVIRONMENT 定制优先级。
 BASE_DIR = Path(__file__).resolve().parents[2]
-for candidate in (".env", ".env.development", ".env.production"):
-    env_path = BASE_DIR / candidate
-    if env_path.exists():
-        load_dotenv(env_path, override=False, encoding="utf-8")
-        break
+
+
+def _as_bool(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _load_environment() -> None:
+    env_file_override = os.getenv("ENV_FILE")
+    if env_file_override:
+        candidate = BASE_DIR / env_file_override
+        if candidate.exists():
+            load_dotenv(candidate, override=True, encoding="utf-8")
+        return
+
+    base_env = BASE_DIR / ".env"
+    if base_env.exists():
+        load_dotenv(base_env, override=False, encoding="utf-8")
+
+    environment = os.getenv("ENVIRONMENT")
+    if environment is None and _as_bool(os.getenv("DEBUG")):
+        environment = "development"
+
+    if environment:
+        if environment.startswith(".env"):
+            candidate_name = environment
+        else:
+            candidate_name = f".env.{environment}"
+        candidate_path = BASE_DIR / candidate_name
+        if candidate_path.exists():
+            load_dotenv(candidate_path, override=True, encoding="utf-8")
+
+
+_load_environment()
 
 
 class Settings(BaseSettings):

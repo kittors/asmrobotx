@@ -1,6 +1,6 @@
 """访问控制项的数据库访问封装。"""
 
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,16 @@ class CRUDAccessControl(CRUDBase[AccessControlItem]):
         if hasattr(self.model, "is_deleted"):
             query = query.filter(self.model.is_deleted.is_(False))
         return query.first() is not None
+
+    def list_by_ids(self, db: Session, ids: Iterable[int]) -> List[AccessControlItem]:
+        """根据一组主键批量检索访问控制项。"""
+        id_set = {item for item in ids if item is not None}
+        if not id_set:
+            return []
+        query = db.query(self.model).filter(self.model.id.in_(id_set))
+        if hasattr(self.model, "is_deleted"):
+            query = query.filter(self.model.is_deleted.is_(False))
+        return query.all()
 
 
 access_control_crud = CRUDAccessControl(AccessControlItem)
