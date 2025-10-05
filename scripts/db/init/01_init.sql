@@ -34,7 +34,10 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
     hashed_password VARCHAR(255) NOT NULL,
+    nickname VARCHAR(100),
     organization_id INTEGER REFERENCES organizations(id),
+    status VARCHAR(20) NOT NULL DEFAULT 'normal',
+    remark VARCHAR(255),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -155,11 +158,14 @@ VALUES
     ('manage_users', '管理用户', 'route')
 ON CONFLICT (name) DO NOTHING;
 
-INSERT INTO users (username, hashed_password, organization_id, is_active)
+INSERT INTO users (username, hashed_password, nickname, organization_id, status, remark, is_active)
 VALUES (
     'admin',
     crypt('admin123', gen_salt('bf')),
+    '系统管理员',
     (SELECT id FROM organizations WHERE name = '研发部'),
+    'normal',
+    NULL,
     TRUE
 )
 ON CONFLICT (username) DO NOTHING;

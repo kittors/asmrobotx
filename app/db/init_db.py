@@ -4,12 +4,13 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import (
     ADMIN_ROLE,
+    DEFAULT_ADMIN_NICKNAME,
     DEFAULT_ADMIN_PASSWORD,
     DEFAULT_ADMIN_USERNAME,
     DEFAULT_ORGANIZATION_NAME,
     DEFAULT_USER_ROLE,
 )
-from app.core.enums import RoleStatusEnum
+from app.core.enums import RoleStatusEnum, UserStatusEnum
 from app.core.security import get_password_hash, verify_password
 from app.db import session as db_session
 from app.models.base import Base
@@ -126,7 +127,10 @@ def _ensure_admin_user(db: Session, organization_id: int, admin_role: Role) -> N
         admin_user = User(
             username=DEFAULT_ADMIN_USERNAME,
             hashed_password=hashed_password,
+            nickname=DEFAULT_ADMIN_NICKNAME,
             organization_id=organization_id,
+            status=UserStatusEnum.NORMAL.value,
+            remark=None,
             is_active=True,
         )
         admin_user.roles = [admin_role]
@@ -138,6 +142,10 @@ def _ensure_admin_user(db: Session, organization_id: int, admin_role: Role) -> N
             admin_user.hashed_password = hashed_password
         if getattr(admin_user, "is_deleted", False):
             admin_user.is_deleted = False
+        if not getattr(admin_user, "nickname", None):
+            admin_user.nickname = DEFAULT_ADMIN_NICKNAME
+        admin_user.status = UserStatusEnum.NORMAL.value
+        admin_user.is_active = True
 
 
 def _ensure_dictionary_entries(db: Session) -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Iterable, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -68,6 +68,18 @@ class CRUDRole(CRUDBase[Role]):
             .all()
         )
         return items, total
+
+    def list_by_ids(self, db: Session, ids: Iterable[int]) -> List[Role]:
+        """根据主键集合批量查询角色。"""
+
+        id_set = {item for item in ids if item is not None}
+        if not id_set:
+            return []
+
+        query = db.query(self.model).filter(self.model.id.in_(id_set))
+        if hasattr(self.model, "is_deleted"):
+            query = query.filter(self.model.is_deleted.is_(False))
+        return query.all()
 
 
 role_crud = CRUDRole(Role)
