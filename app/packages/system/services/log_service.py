@@ -20,6 +20,7 @@ from app.packages.system.core.constants import (
     HTTP_STATUS_OK,
 )
 from app.packages.system.core.responses import create_response
+from app.packages.system.core.timezone import format_datetime
 from app.packages.system.crud.logs import login_log_crud, operation_log_crud
 from app.packages.system.crud.operation_log_monitor_rules import operation_log_monitor_rule_crud
 from app.packages.system.models.log import LoginLog, OperationLog, OperationLogMonitorRule
@@ -594,9 +595,7 @@ class LogService:
 
     @staticmethod
     def _format_datetime(value: Optional[datetime]) -> Optional[str]:
-        if value is None:
-            return None
-        return value.strftime("%Y-%m-%d %H:%M:%S")
+        return format_datetime(value)
 
     @staticmethod
     def _format_json_block(value: Optional[str]) -> str:

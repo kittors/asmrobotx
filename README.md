@@ -29,7 +29,9 @@
 │           └── services/      # 业务服务逻辑
 ├── scripts/
 │   └── db/init/               # PostgreSQL 初始化 SQL
-├── tests/                     # Pytest 自动化用例
+├── tests/                     # Pytest 自动化用例（按业务包划分，如 tests/system）
+├── docs/
+│   └── system/api/            # 系统包接口文档（Markdown）
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
@@ -114,19 +116,79 @@ pytest
 测试使用独立的 SQLite 数据库并自动完成数据准备。
 
 ## 核心环境变量
-| 变量 | 说明 |
-| --- | --- |
-| `DATABASE_*` | PostgreSQL 连接信息 |
-| `REDIS_*` | Redis 连接信息 |
-| `JWT_SECRET_KEY` | JWT 签名密钥 |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 基础过期时间（分钟，滑动过期窗口） |
-| `LOG_LEVEL` | 日志级别 |
-| `LOG_DIR` | 日志文件目录（默认项目根目录下的 `log/`） |
-| `LOG_FILE_NAME` | 日志文件名（默认 `app.log`） |
-| `APP_PORT` / `POSTGRES_HOST_PORT` / `REDIS_HOST_PORT` | Docker 暴露的宿主机端口 |
-| `ENVIRONMENT` | 选择加载的环境文件（如 `development`、`production`，会加载 `.env.<ENVIRONMENT>`） |
-| `ENV_FILE` | 显式指定要加载的环境文件路径，优先级最高，例如 `export ENV_FILE=.env.development` |
-| `APP_ACTIVE_PACKAGE` | 指定要装载的业务包名称，默认 `system` |
+本项目默认提供开发环境示例配置，可直接复制 `.env.development` 为 `.env`。下表列出了所有字段的用途及推荐取值：
+
+- **基础运行**
+  - `ENVIRONMENT`：当前环境标识，决定加载 `.env.<ENVIRONMENT>`；默认 `development`。
+  - `PROJECT_NAME`：FastAPI 应用标题，默认 `ASM RobotX API`。
+  - `API_V1_STR`：API 前缀；默认 `/api/v1`。
+  - `DEBUG`：启用 FastAPI Debug 模式，开发环境建议为 `True`。
+
+- **数据库连接**
+  - `DATABASE_HOST`：数据库主机名，默认 `localhost`。
+  - `DATABASE_PORT`：数据库端口，开发 Docker 环境默认 `5433`。
+  - `DATABASE_USER`：数据库用户名，默认 `postgres`。
+  - `DATABASE_PASSWORD`：数据库密码，默认 `postgres`。
+  - `DATABASE_NAME`：数据库名称，开发环境默认 `asmrobotx_dev`。
+  - `DATABASE_ECHO`：若为 `True` 则输出 SQL 语句到日志，方便调试。
+
+- **Redis 配置**
+  - `REDIS_HOST`：Redis 主机名，默认 `localhost`。
+  - `REDIS_PORT`：Redis 端口，默认 `6380`。
+  - `REDIS_DB`：Redis 库索引，默认 `0`。
+
+- **安全参数**
+  - `JWT_SECRET_KEY`：JWT 签名密钥，建议每个环境独立设置。
+  - `JWT_ALGORITHM`：JWT 签名算法，默认 `HS256`。
+  - `ACCESS_TOKEN_EXPIRE_MINUTES`：访问令牌过期时间（分钟），默认 `30`。
+
+- **日志配置**
+  - `LOG_LEVEL`：日志级别（如 `DEBUG`、`INFO`），默认 `DEBUG`。
+  - `LOG_DIR`：日志目录，默认项目根目录下 `log/`。
+  - `LOG_FILE_NAME`：日志文件名，默认 `app.log`。
+- **时区**
+  - `TIMEZONE`：应用运行时所使用的时区标识，默认 `Asia/Shanghai`。该设置会影响日志审计、导出等接口返回的时间展示。
+
+- **服务端口**
+  - `APP_PORT`：应用监听端口，默认 `8000`。
+  - `POSTGRES_HOST_PORT`：Docker 暴露的 PostgreSQL 端口，默认 `5433`。
+  - `REDIS_HOST_PORT`：Docker 暴露的 Redis 端口，默认 `6380`。
+
+- **其它**
+  - `ENV_FILE`：显式指定要加载的环境文件（如 `.env.development`），优先级高于 `ENVIRONMENT`。
+  - `APP_ACTIVE_PACKAGE`：指定启用的业务包，默认 `system`。
+
+示例 `.env`（开发环境）：
+```dotenv
+# Development environment variables
+ENVIRONMENT=development
+PROJECT_NAME=ASM RobotX API
+API_V1_STR=/api/v1
+DEBUG=True
+
+DATABASE_HOST=localhost
+DATABASE_PORT=5433
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres
+DATABASE_NAME=asmrobotx_dev
+DATABASE_ECHO=True
+
+REDIS_HOST=localhost
+REDIS_PORT=6380
+REDIS_DB=0
+
+JWT_SECRET_KEY=devsecretkeychange
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+LOG_LEVEL=DEBUG
+LOG_DIR=log
+LOG_FILE_NAME=app.log
+APP_PORT=8000
+POSTGRES_HOST_PORT=5433
+REDIS_HOST_PORT=6380
+TIMEZONE=Asia/Shanghai
+```
 
 ## 主要 API
 | 方法 | 路径 | 描述 |

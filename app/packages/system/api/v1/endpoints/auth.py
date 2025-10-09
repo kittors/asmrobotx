@@ -1,6 +1,6 @@
 """认证相关路由定义。"""
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Request
@@ -15,6 +15,7 @@ from app.packages.system.api.v1.schemas.auth import (
 )
 from app.packages.system.core.dependencies import get_db, get_current_active_user
 from app.packages.system.core.constants import HTTP_STATUS_OK
+from app.packages.system.core.timezone import now as tz_now
 from app.packages.system.core.responses import create_response
 from app.packages.system.services.auth_service import auth_service
 from app.packages.system.models.user import User
@@ -72,7 +73,7 @@ def _extract_login_meta(request: Request) -> Dict[str, Any]:
         "browser": browser,
         "device_type": device_type,
         "client_name": "web",
-        "login_time": datetime.now(timezone.utc),
+        "login_time": tz_now(),
     }
 
 

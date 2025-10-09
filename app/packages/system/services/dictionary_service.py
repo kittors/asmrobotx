@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
@@ -16,6 +15,7 @@ from app.packages.system.core.constants import (
 )
 from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.responses import create_response
+from app.packages.system.core.timezone import format_datetime
 from app.packages.system.crud.dictionary import dictionary_crud
 from app.packages.system.crud.dictionary_type import dictionary_type_crud
 from app.packages.system.models.dictionary import DictionaryEntry, DictionaryType
@@ -273,8 +273,8 @@ class DictionaryService:
             "display_name": dictionary_type.display_name,
             "description": dictionary_type.description,
             "sort_order": dictionary_type.sort_order,
-            "create_time": self._format_datetime(dictionary_type.create_time),
-            "update_time": self._format_datetime(dictionary_type.update_time),
+            "create_time": format_datetime(dictionary_type.create_time),
+            "update_time": format_datetime(dictionary_type.update_time),
         }
 
     def _serialize_item(self, dictionary_item: DictionaryEntry) -> dict[str, Any]:
@@ -285,17 +285,9 @@ class DictionaryService:
             "value": dictionary_item.value,
             "description": dictionary_item.description,
             "sort_order": dictionary_item.sort_order,
-            "create_time": self._format_datetime(dictionary_item.create_time),
-            "update_time": self._format_datetime(dictionary_item.update_time),
+            "create_time": format_datetime(dictionary_item.create_time),
+            "update_time": format_datetime(dictionary_item.update_time),
         }
-
-    @staticmethod
-    def _format_datetime(value: Optional[datetime]) -> Optional[str]:
-        if value is None:
-            return None
-        if value.tzinfo is not None:
-            value = value.astimezone(tz=None)
-        return value.strftime("%Y-%m-%d %H:%M:%S")
 
 
 dictionary_service = DictionaryService()

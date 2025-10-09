@@ -1,6 +1,5 @@
 """认证服务：封装注册、登录等核心业务流程。"""
 
-from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
@@ -16,6 +15,7 @@ from app.packages.system.core.constants import (
 from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.logger import logger
 from app.packages.system.core.responses import create_response
+from app.packages.system.core.timezone import now as tz_now
 from app.packages.system.core.security import create_access_token, get_password_hash, verify_password
 from app.packages.system.crud.organizations import organization_crud
 from app.packages.system.crud.roles import role_crud
@@ -152,7 +152,7 @@ class AuthService:
                 "browser": audit_meta.get("browser") or audit_meta.get("user_agent"),
                 "status": status,
                 "message": message,
-                "login_time": audit_meta.get("login_time") or datetime.now(timezone.utc),
+                "login_time": audit_meta.get("login_time") or tz_now(),
             }
 
             log_service.record_login_log(db, payload=payload)

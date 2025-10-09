@@ -4,6 +4,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 from pydantic import Field
@@ -88,6 +89,7 @@ class Settings(BaseSettings):
     log_dir: str = Field(default="log", alias="LOG_DIR")
     log_file_name: str = Field(default="app.log", alias="LOG_FILE_NAME")
     app_port: int = Field(default=8000, alias="APP_PORT")
+    timezone: str = Field(default="Asia/Shanghai", alias="TIMEZONE")
 
     model_config = SettingsConfigDict(extra='ignore')
 
@@ -119,6 +121,14 @@ class Settings(BaseSettings):
     def log_file_path(self) -> Path:
         """组合日志目录与文件名，得到完整的日志文件路径。"""
         return self.log_directory / self.log_file_name
+
+    @property
+    def timezone_info(self) -> ZoneInfo:
+        """返回当前配置对应的时区信息，无法解析时回退到 UTC。"""
+        try:
+            return ZoneInfo(self.timezone)
+        except ZoneInfoNotFoundError:
+            return ZoneInfo("UTC")
 
 
 @lru_cache

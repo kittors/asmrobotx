@@ -22,6 +22,7 @@ from app.packages.system.core.constants import (
 from app.packages.system.core.enums import RoleStatusEnum
 from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.responses import create_response
+from app.packages.system.core.timezone import format_datetime
 from app.packages.system.crud.access_control import access_control_crud
 from app.packages.system.crud.roles import role_crud
 from app.packages.system.models.role import Role
@@ -201,7 +202,7 @@ class RoleService:
                     role.role_key,
                     role.sort_order,
                     self._STATUS_LABELS.get(role.status, role.status),
-                    self._format_datetime(role.create_time),
+                    format_datetime(role.create_time),
                 ]
             )
 
@@ -290,14 +291,14 @@ class RoleService:
             "status": role.status,
             "status_label": self._STATUS_LABELS.get(role.status, role.status),
             "remark": role.remark,
-            "create_time": self._format_datetime(role.create_time),
+            "create_time": format_datetime(role.create_time),
         }
 
     def _serialize_role_detail(self, role: Role) -> dict:
         payload = self._serialize_role_summary(role)
         payload.update(
             {
-                "update_time": self._format_datetime(role.update_time),
+                "update_time": format_datetime(role.update_time),
                 "permission_ids": sorted(item.id for item in role.access_controls),
                 "permission_codes": sorted(
                     {
@@ -309,14 +310,6 @@ class RoleService:
             }
         )
         return payload
-
-    @staticmethod
-    def _format_datetime(value: Optional[datetime]) -> Optional[str]:
-        if value is None:
-            return None
-        if value.tzinfo is not None:
-            value = value.astimezone(tz=None)
-        return value.strftime("%Y-%m-%d %H:%M:%S")
 
 
 role_service = RoleService()

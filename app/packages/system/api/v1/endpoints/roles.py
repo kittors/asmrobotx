@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Iterable, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -23,6 +23,7 @@ from app.packages.system.core.constants import HTTP_STATUS_BAD_REQUEST
 from app.packages.system.core.dependencies import get_current_active_user, get_db
 from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.logger import logger
+from app.packages.system.core.timezone import get_timezone, now as tz_now
 from app.packages.system.models.user import User
 from app.packages.system.services.log_service import log_service
 from app.packages.system.services.role_service import role_service
@@ -65,7 +66,7 @@ def export_roles(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> StreamingResponse:
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_headers: Optional[dict[str, Any]] = None
@@ -126,7 +127,7 @@ def create_role(
     current_user: User = Depends(get_current_active_user),
 ) -> RoleMutationResponse:
     body = payload.model_dump()
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -170,7 +171,7 @@ def update_role(
     current_user: User = Depends(get_current_active_user),
 ) -> RoleMutationResponse:
     body = payload.model_dump()
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -214,7 +215,7 @@ def delete_role(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> RoleDeletionResponse:
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -250,7 +251,7 @@ def change_role_status(
     current_user: User = Depends(get_current_active_user),
 ) -> RoleMutationResponse:
     body = payload.model_dump()
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -290,7 +291,7 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
     for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
         try:
             parsed = datetime.strptime(token, pattern)
-            return parsed.replace(tzinfo=timezone.utc)
+            return parsed.replace(tzinfo=get_timezone())
         except ValueError:
             continue
     raise AppException(msg="时间格式不正确，应为 YYYY-MM-DD HH:MM:SS", code=HTTP_STATUS_BAD_REQUEST)
@@ -318,7 +319,7 @@ def _record_operation_log(
 ) -> None:
     """记录角色管理相关操作日志。"""
 
-    finished_at = datetime.now(timezone.utc)
+    finished_at = tz_now()
     cost_ms = max(int((finished_at - started_at).total_seconds() * 1000), 0)
     status_value = status if status in {"success", "failure"} else "other"
 

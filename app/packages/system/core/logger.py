@@ -60,6 +60,9 @@ def setup_logging() -> None:
                 "()": "app.packages.system.core.logger.ColorFormatter",
                 "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
             },
+            "plain": {
+                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            },
         },
         "handlers": {
             "default": {
@@ -70,7 +73,7 @@ def setup_logging() -> None:
             "file": {
                 "level": settings.log_level,
                 "class": "logging.handlers.TimedRotatingFileHandler",
-                "formatter": "standard",
+                "formatter": "plain",
                 "filename": str(log_file_path),
                 "when": "midnight",
                 "backupCount": 14,
@@ -99,6 +102,10 @@ def setup_logging() -> None:
                 "level": settings.log_level,
                 "propagate": False,
             },
+        },
+        "root": {
+            "handlers": ["default", "file"],
+            "level": settings.log_level,
         },
     }
     logging.config.dictConfig(logging_config)

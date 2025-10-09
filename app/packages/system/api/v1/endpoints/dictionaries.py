@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -23,6 +23,7 @@ from app.packages.system.api.v1.schemas.dictionary import (
 )
 from app.packages.system.core.dependencies import get_current_active_user, get_db
 from app.packages.system.core.logger import logger
+from app.packages.system.core.timezone import now as tz_now
 from app.packages.system.models.user import User
 from app.packages.system.services.dictionary_service import dictionary_service
 from app.packages.system.services.log_service import log_service
@@ -49,7 +50,7 @@ def create_dictionary_type(
     current_user: User = Depends(get_current_active_user),
 ) -> DictionaryTypeMutationResponse:
     """创建新的字典类型。"""
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -92,7 +93,7 @@ def update_dictionary_type(
     current_user: User = Depends(get_current_active_user),
 ) -> DictionaryTypeMutationResponse:
     """更新字典类型信息。"""
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -135,7 +136,7 @@ def delete_dictionary_type(
     current_user: User = Depends(get_current_active_user),
 ) -> DictionaryTypeDeletionResponse:
     """删除指定字典类型及其字典项。"""
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -189,7 +190,7 @@ def create_dictionary_item(
     current_user: User = Depends(get_current_active_user),
 ) -> DictionaryItemMutationResponse:
     """创建新的字典项。"""
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -233,7 +234,7 @@ def update_dictionary_item(
     current_user: User = Depends(get_current_active_user),
 ) -> DictionaryItemMutationResponse:
     """更新字典项。"""
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -277,7 +278,7 @@ def delete_dictionary_item(
     current_user: User = Depends(get_current_active_user),
 ) -> DictionaryItemDeletionResponse:
     """删除指定字典项。"""
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -319,7 +320,7 @@ def _record_operation_log(
 ) -> None:
     """记录系统字典管理相关的操作日志。"""
 
-    finished_at = datetime.now(timezone.utc)
+    finished_at = tz_now()
     cost_ms = max(int((finished_at - started_at).total_seconds() * 1000), 0)
     status_value = status if status in {"success", "failure"} else "other"
 

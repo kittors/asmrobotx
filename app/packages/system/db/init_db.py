@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_DICTIONARY_TYPES: Dict[str, Tuple[str, str]] = {
     "display_status": ("显示状态", "用于表示菜单或组件在前端的显示控制"),
     "enabled_status": ("启用状态", "用于标记资源当前是否可用"),
+    "icon_list": ("图标列表", "为前端图标选择器提供可用图标"),
+    "operation_log_type": ("操作日志类型", "区分操作日志的业务动作"),
 }
 
 DEFAULT_DICTIONARY_ITEMS: Dict[str, Iterable[Tuple[str, str, str]]] = {
@@ -38,6 +40,26 @@ DEFAULT_DICTIONARY_ITEMS: Dict[str, Iterable[Tuple[str, str, str]]] = {
     "enabled_status": (
         ("启用", "enabled", "标记条目当前处于启用状态"),
         ("停用", "disabled", "标记条目当前处于停用状态"),
+    ),
+    "icon_list": (
+        ("工具箱", "tool-case", "工具图标"),
+        ("设置", "settings", "设置图标"),
+        ("搜索", "search", "通用搜索图标"),
+        ("外链", "link", "外链/跳转图标"),
+        ("地图定位", "map-pinned", "地理定位图标"),
+        ("菜单", "menu", "菜单/列表图标"),
+    ),
+    "operation_log_type": (
+        ("新增", "create", "新增数据"),
+        ("修改", "update", "修改数据"),
+        ("删除", "delete", "删除数据"),
+        ("查询", "query", "查询数据"),
+        ("授权", "grant", "权限授权"),
+        ("导出", "export", "数据导出"),
+        ("导入", "import", "数据导入"),
+        ("强退", "force_logout", "强制下线"),
+        ("清除数据", "clean", "批量清除数据"),
+        ("其他", "other", "其它操作"),
     ),
 }
 

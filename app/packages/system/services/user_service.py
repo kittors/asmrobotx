@@ -21,6 +21,7 @@ from app.packages.system.core.constants import (
 from app.packages.system.core.enums import UserStatusEnum
 from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.responses import create_response
+from app.packages.system.core.timezone import format_datetime
 from app.packages.system.core.security import get_password_hash
 from app.packages.system.crud.organizations import organization_crud
 from app.packages.system.crud.roles import role_crud
@@ -258,7 +259,7 @@ class UserService:
                     item.nickname or "",
                     self._STATUS_LABELS.get(item.status, item.status),
                     ", ".join(sorted(role.name for role in item.roles)),
-                    self._format_datetime(item.create_time) or "",
+                    format_datetime(item.create_time) or "",
                     item.remark or "",
                 ]
             )
@@ -404,8 +405,8 @@ class UserService:
             "role_names": sorted(role.name for role in user.roles),
             "organization": self._serialize_organization(user.organization),
             "remark": user.remark,
-            "create_time": self._format_datetime(user.create_time),
-            "update_time": self._format_datetime(user.update_time),
+            "create_time": format_datetime(user.create_time),
+            "update_time": format_datetime(user.update_time),
             "is_active": user.is_active,
         }
 
@@ -477,14 +478,6 @@ class UserService:
         if organization is None:
             raise AppException("组织机构不存在", HTTP_STATUS_NOT_FOUND)
         return organization
-
-    @staticmethod
-    def _format_datetime(value: Optional[datetime]) -> Optional[str]:
-        if value is None:
-            return None
-        if value.tzinfo is not None:
-            value = value.astimezone(tz=None)
-        return value.strftime("%Y-%m-%d %H:%M:%S")
 
     def _prepare_role_lookup(self, db: Session) -> dict[str, Role]:
         roles = role_crud.get_multi(db, skip=0, limit=10_000)

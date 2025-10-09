@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Iterable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -25,6 +25,7 @@ from app.packages.system.api.v1.schemas.logs import (
 from app.packages.system.core.constants import HTTP_STATUS_BAD_REQUEST
 from app.packages.system.core.dependencies import get_current_active_user, get_db
 from app.packages.system.core.logger import logger
+from app.packages.system.core.timezone import get_timezone, now as tz_now
 from app.packages.system.models.user import User
 from app.packages.system.services.log_service import log_service
 
@@ -47,7 +48,7 @@ def list_operation_logs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> OperationLogListResponse:
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -112,7 +113,7 @@ def export_operation_logs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_headers: Optional[dict[str, Any]] = None
@@ -170,7 +171,7 @@ def get_operation_log_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> OperationLogDetailResponse:
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -297,7 +298,7 @@ def list_login_logs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> LoginLogListResponse:
-    started_at = datetime.now(timezone.utc)
+    started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
     response_payload: Optional[dict[str, Any]] = None
@@ -371,7 +372,7 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
     for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
         try:
             parsed = datetime.strptime(value, pattern)
-            return parsed.replace(tzinfo=timezone.utc)
+            return parsed.replace(tzinfo=get_timezone())
         except ValueError:
             continue
     raise HTTPException(status_code=HTTP_STATUS_BAD_REQUEST, detail="时间格式不正确，应为 YYYY-MM-DD HH:MM:SS")
@@ -398,7 +399,7 @@ def _record_operation_log(
     error_message: Optional[str],
     started_at: datetime,
 ) -> None:
-    finished_at = datetime.now(timezone.utc)
+    finished_at = tz_now()
     cost_ms = max(int((finished_at - started_at).total_seconds() * 1000), 0)
     status_value = status if status in {"success", "failure"} else "other"
 
