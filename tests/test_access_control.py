@@ -2,6 +2,8 @@
 
 from fastapi.testclient import TestClient
 
+from app.models.access_control import AccessControlItem
+
 
 def _get_token(client: TestClient) -> str:
     response = client.post(
@@ -218,6 +220,71 @@ def test_get_routers_returns_dynamic_menu_tree(client: TestClient):
     child_router = root_router["children"][0]
     assert child_router["path"] == "child"
     assert child_router["component"] == "demo/child/index"
+
+
+def test_get_routers_accepts_localized_enabled_status(
+    client: TestClient,
+    db_session_fixture,
+) -> None:
+    """即便启用状态以本地化值存储，也应返回对应的菜单路由。"""
+
+    token = _get_token(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    root_resp = client.post(
+        "/api/v1/access-controls",
+        headers=headers,
+        json={
+            "name": "本地化菜单",
+            "type": "menu",
+            "route_path": "/localized",
+            "display_status": "show",
+            "enabled_status": "enabled",
+            "component_path": "Layout",
+            "icon": "settings",
+            "sort_order": 1,
+            "keep_alive": False,
+        },
+    )
+    assert root_resp.status_code == 200
+    root_id = root_resp.json()["data"]["id"]
+
+    child_resp = client.post(
+        "/api/v1/access-controls",
+        headers=headers,
+        json={
+            "parent_id": root_id,
+            "name": "子菜单",
+            "type": "menu",
+            "route_path": "child",
+            "display_status": "show",
+            "enabled_status": "enabled",
+            "component_path": "views/system/localized_child/index",
+            "icon": "tool-case",
+            "sort_order": 2,
+            "keep_alive": False,
+        },
+    )
+    assert child_resp.status_code == 200
+    child_id = child_resp.json()["data"]["id"]
+
+    session = db_session_fixture
+    root_item = session.get(AccessControlItem, root_id)
+    child_item = session.get(AccessControlItem, child_id)
+    assert root_item is not None and child_item is not None
+    root_item.enabled_status = "启用"
+    child_item.enabled_status = "启用"
+    session.commit()
+
+    router_resp = client.get("/api/v1/access-controls/routers", headers=headers)
+    assert router_resp.status_code == 200
+    routers = router_resp.json()["data"]
+    root_router = next(route for route in routers if route["meta"]["title"] == "本地化菜单")
+    assert root_router["path"] == "/localized"
+    assert root_router["children"], "本地化菜单应包含子路由"
+
+    child_router = next(child for child in root_router["children"] if child["meta"]["title"] == "子菜单")
+    assert child_router["path"] == "child"
     assert child_router["meta"]["noCache"] is True
 
     client.delete(f"/api/v1/access-controls/{child_id}", headers=headers)

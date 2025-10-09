@@ -37,6 +37,7 @@ class OperationLogTypeEnum(str, Enum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
+    QUERY = "query"
     GRANT = "grant"
     EXPORT = "export"
     IMPORT = "import"

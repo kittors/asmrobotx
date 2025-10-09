@@ -14,12 +14,15 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import (
     HTTP_STATUS_BAD_REQUEST,
+    HTTP_STATUS_CONFLICT,
+    HTTP_STATUS_CREATED,
     HTTP_STATUS_NOT_FOUND,
     HTTP_STATUS_OK,
 )
 from app.core.responses import create_response
 from app.crud.logs import login_log_crud, operation_log_crud
-from app.models.log import LoginLog, OperationLog
+from app.crud.operation_log_monitor_rules import operation_log_monitor_rule_crud
+from app.models.log import LoginLog, OperationLog, OperationLogMonitorRule
 
 
 class LogService:
@@ -29,6 +32,7 @@ class LogService:
         "create": "新增",
         "update": "修改",
         "delete": "删除",
+        "query": "查询",
         "grant": "授权",
         "export": "导出",
         "import": "导入",
@@ -237,7 +241,10 @@ class LogService:
         *,
         payload: dict,
         log_number: Optional[str] = None,
-    ) -> OperationLog:
+    ) -> Optional[OperationLog]:
+        if not self._should_record_operation_log(db, payload):
+            return None
+
         serial = log_number or self.generate_operation_number()
         obj = operation_log_crud.create(db, payload | {"log_number": serial})
         return obj
@@ -252,6 +259,213 @@ class LogService:
         serial = visit_number or self.generate_visit_number()
         obj = login_log_crud.create(db, payload | {"visit_number": serial})
         return obj
+
+    # ------------------------------------------------------------------
+    # 监听规则维护
+    # ------------------------------------------------------------------
+
+    def list_monitor_rules(
+        self,
+        db: Session,
+        *,
+        request_uri: Optional[str] = None,
+        http_method: Optional[str] = None,
+        match_mode: Optional[str] = None,
+        is_enabled: Optional[bool] = None,
+        operation_type_code: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict:
+        page = max(page, 1)
+        page_size = max(page_size, 1)
+
+        items, total = operation_log_monitor_rule_crud.list_with_filters(
+            db,
+            request_uri=request_uri,
+            http_method=http_method,
+            match_mode=match_mode,
+            is_enabled=is_enabled,
+            operation_type_code=operation_type_code,
+            skip=(page - 1) * page_size,
+            limit=page_size,
+        )
+
+        payload = {
+            "total": total,
+            "items": [self._serialize_monitor_rule(item) for item in items],
+            "page": page,
+            "page_size": page_size,
+        }
+        return create_response("获取监听规则列表成功", payload, HTTP_STATUS_OK)
+
+    def get_monitor_rule(self, db: Session, *, rule_id: int) -> dict:
+        rule = operation_log_monitor_rule_crud.get(db, rule_id)
+        if rule is None:
+            raise HTTPException(status_code=HTTP_STATUS_NOT_FOUND, detail="监听规则不存在")
+        return create_response("获取监听规则详情成功", self._serialize_monitor_rule(rule), HTTP_STATUS_OK)
+
+    def create_monitor_rule(self, db: Session, *, payload: dict) -> dict:
+        normalized = self._normalize_monitor_rule_payload(payload)
+
+        self._ensure_monitor_rule_unique(
+            db,
+            request_uri=normalized.get("request_uri"),
+            http_method=normalized.get("http_method", "ALL"),
+            match_mode=normalized.get("match_mode", "exact"),
+        )
+
+        rule = operation_log_monitor_rule_crud.create(db, normalized)
+        return create_response("创建监听规则成功", self._serialize_monitor_rule(rule), HTTP_STATUS_CREATED)
+
+    def update_monitor_rule(self, db: Session, *, rule_id: int, payload: dict) -> dict:
+        rule = operation_log_monitor_rule_crud.get(db, rule_id)
+        if rule is None:
+            raise HTTPException(status_code=HTTP_STATUS_NOT_FOUND, detail="监听规则不存在")
+
+        normalized = self._normalize_monitor_rule_payload(payload, allow_partial=True)
+
+        target_request_uri = normalized.get("request_uri", rule.request_uri)
+        target_http_method = normalized.get("http_method", rule.http_method)
+        target_match_mode = normalized.get("match_mode", rule.match_mode)
+
+        self._ensure_monitor_rule_unique(
+            db,
+            request_uri=target_request_uri,
+            http_method=target_http_method,
+            match_mode=target_match_mode,
+            exclude_id=rule.id,
+        )
+
+        for key, value in normalized.items():
+            setattr(rule, key, value)
+
+        updated = operation_log_monitor_rule_crud.save(db, rule)
+        return create_response("更新监听规则成功", self._serialize_monitor_rule(updated), HTTP_STATUS_OK)
+
+    def delete_monitor_rule(self, db: Session, *, rule_id: int) -> dict:
+        rule = operation_log_monitor_rule_crud.get(db, rule_id)
+        if rule is None:
+            raise HTTPException(status_code=HTTP_STATUS_NOT_FOUND, detail="监听规则不存在")
+
+        operation_log_monitor_rule_crud.soft_delete(db, rule)
+        return create_response("删除监听规则成功", {"rule_id": rule_id}, HTTP_STATUS_OK)
+
+    def _should_record_operation_log(self, db: Session, payload: dict) -> bool:
+        """根据数据库配置判断本次请求是否需要采集操作日志。"""
+
+        request_uri = payload.get("request_uri")
+        if not request_uri:
+            # 缺少请求路径时无法匹配监听规则，默认不记录。
+            return False
+
+        request_method = payload.get("request_method")
+        rule = operation_log_monitor_rule_crud.find_matching_rule(
+            db,
+            request_uri=str(request_uri),
+            http_method=str(request_method) if request_method else None,
+        )
+        if rule is None:
+            # 未配置规则则不记录，需显式开启。
+            return False
+        return bool(rule.is_enabled)
+
+    def _serialize_monitor_rule(self, rule: OperationLogMonitorRule) -> dict:
+        return {
+            "id": rule.id,
+            "name": rule.name,
+            "request_uri": rule.request_uri,
+            "http_method": rule.http_method,
+            "match_mode": rule.match_mode,
+            "is_enabled": rule.is_enabled,
+            "description": rule.description,
+            "operation_type_code": rule.operation_type_code,
+            "operation_type_label": self._display_operation_type(rule.operation_type_code),
+            "create_time": self._format_datetime(rule.create_time),
+            "update_time": self._format_datetime(rule.update_time),
+        }
+
+    def _normalize_monitor_rule_payload(self, payload: dict, *, allow_partial: bool = False) -> dict:
+        if payload is None:
+            payload = {}
+
+        normalized: dict[str, Optional[str]] = {}
+
+        def _strip(value: Optional[str]) -> Optional[str]:
+            if value is None:
+                return None
+            text = str(value).strip()
+            return text or None
+
+        if not allow_partial or "request_uri" in payload:
+            request_uri = _strip(payload.get("request_uri"))
+            if not request_uri:
+                if allow_partial:
+                    pass
+                else:
+                    raise HTTPException(status_code=HTTP_STATUS_BAD_REQUEST, detail="请求地址不能为空")
+            else:
+                normalized["request_uri"] = request_uri
+
+        if not allow_partial or "http_method" in payload:
+            http_method = payload.get("http_method")
+            if http_method is None:
+                method_value = "ALL"
+            else:
+                method_value = str(http_method).strip().upper()
+            if not method_value:
+                raise HTTPException(status_code=HTTP_STATUS_BAD_REQUEST, detail="HTTP 方法不能为空")
+            normalized["http_method"] = method_value
+
+        if not allow_partial or "match_mode" in payload:
+            match_mode = payload.get("match_mode")
+            mode_value = str(match_mode).strip().lower() if match_mode is not None else "exact"
+            if mode_value not in {"exact", "prefix"}:
+                raise HTTPException(status_code=HTTP_STATUS_BAD_REQUEST, detail="匹配模式仅支持 exact 或 prefix")
+            normalized["match_mode"] = mode_value
+
+        if not allow_partial or "is_enabled" in payload:
+            if "is_enabled" in payload:
+                normalized["is_enabled"] = bool(payload.get("is_enabled"))
+            elif not allow_partial:
+                normalized["is_enabled"] = True
+
+        if not allow_partial or "name" in payload:
+            normalized["name"] = _strip(payload.get("name"))
+
+        if not allow_partial or "description" in payload:
+            normalized["description"] = _strip(payload.get("description"))
+
+        if not allow_partial or "operation_type_code" in payload:
+            code = payload.get("operation_type_code")
+            if code is None:
+                normalized["operation_type_code"] = None
+            else:
+                normalized["operation_type_code"] = _strip(code.lower()) if isinstance(code, str) else _strip(code)
+
+        return normalized
+
+    def _ensure_monitor_rule_unique(
+        self,
+        db: Session,
+        *,
+        request_uri: Optional[str],
+        http_method: Optional[str],
+        match_mode: Optional[str],
+        exclude_id: Optional[int] = None,
+    ) -> None:
+        if not request_uri or not http_method or not match_mode:
+            return
+
+        existing = operation_log_monitor_rule_crud.get_by_unique(
+            db,
+            request_uri=request_uri,
+            http_method=http_method,
+            match_mode=match_mode,
+            exclude_id=exclude_id,
+        )
+
+        if existing is not None:
+            raise HTTPException(status_code=HTTP_STATUS_CONFLICT, detail="监听规则已存在")
 
     # ------------------------------------------------------------------
     # 底层辅助方法

@@ -40,11 +40,37 @@ def list_access_controls(
 
 @router.get("/routers", response_model=RouterListResponse)
 def get_routers(
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> RouterListResponse:
-    """返回前端动态路由配置。"""
-    return access_control_service.get_routers(db)
+    """返回前端动态路由配置，并记录查询操作日志。"""
+
+    started_at = datetime.now(timezone.utc)
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+
+    try:
+        response_payload = access_control_service.get_routers(db)
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            business_type="query",
+            class_method="app.api.v1.endpoints.access_controls.get_routers",
+            request_body=None,
+            response_body=response_payload if isinstance(response_payload, dict) else None,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
 
 
 @router.get("/{item_id}", response_model=AccessControlDetailResponse)

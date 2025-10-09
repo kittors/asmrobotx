@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, MetaData, Table, func
+from sqlalchemy import Boolean, Column, DateTime, Integer, MetaData, Table, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import expression
 
@@ -52,20 +52,20 @@ class SoftDeleteMixin:
 user_roles = Table(
     "user_roles",
     Base.metadata,
-    Column("user_id", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True),
-    Column("role_id", ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True, index=True),
+    Column("user_id", Integer, primary_key=True, index=True),
+    Column("role_id", Integer, primary_key=True, index=True),
 )
 
 role_permissions = Table(
     "role_permissions",
     Base.metadata,
-    Column("role_id", ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True, index=True),
-    Column("permission_id", ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True, index=True),
+    Column("role_id", Integer, primary_key=True, index=True),
+    Column("permission_id", Integer, primary_key=True, index=True),
 )
 
 role_access_controls = Table(
     "role_access_controls",
     Base.metadata,
-    Column("role_id", ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True, index=True),
-    Column("access_control_id", ForeignKey("access_control_items.id", ondelete="CASCADE"), primary_key=True, index=True),
+    Column("role_id", Integer, primary_key=True, index=True),
+    Column("access_control_id", Integer, primary_key=True, index=True),
 )

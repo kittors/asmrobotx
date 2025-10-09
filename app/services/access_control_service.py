@@ -150,7 +150,7 @@ class AccessControlService:
             item
             for item in items
             if self._normalize_type_value(item.type) == AccessControlTypeEnum.MENU.value
-            and (item.enabled_status or "enabled").strip().lower() == "enabled"
+            and self._is_enabled(item.enabled_status)
         ]
 
         if not menus:
@@ -403,6 +403,20 @@ class AccessControlService:
         if value not in {"enabled", "disabled"}:
             return None
         return value
+
+    def _is_enabled(self, enabled_status: Optional[str]) -> bool:
+        """Return True when the stored enabled flag should allow routing."""
+
+        normalized = self._normalize_status(enabled_status)
+        if normalized is not None:
+            return normalized == "enabled"
+
+        fallback = (enabled_status or "enabled").strip().lower()
+        if not fallback:
+            fallback = "enabled"
+        if fallback not in {"enabled", "disabled"}:
+            return False
+        return fallback == "enabled"
 
     def _normalize_enabled_status_value(self, enabled_status: Optional[str]) -> str:
         if enabled_status is None:

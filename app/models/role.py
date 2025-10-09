@@ -31,15 +31,21 @@ class Role(TimestampMixin, SoftDeleteMixin, Base):
     users: Mapped[List["User"]] = relationship(
         "User",
         secondary=user_roles,
+        primaryjoin="Role.id == user_roles.c.role_id",
+        secondaryjoin="User.id == user_roles.c.user_id",
         back_populates="roles",
     )
     permissions: Mapped[List["Permission"]] = relationship(
         "Permission",
         secondary=role_permissions,
+        primaryjoin="Role.id == role_permissions.c.role_id",
+        secondaryjoin="Permission.id == role_permissions.c.permission_id",
         back_populates="roles",
     )
     access_controls: Mapped[List["AccessControlItem"]] = relationship(
         "AccessControlItem",
         secondary=role_access_controls,
+        primaryjoin="Role.id == role_access_controls.c.role_id",
+        secondaryjoin="AccessControlItem.id == role_access_controls.c.access_control_id",
         back_populates="roles",
     )

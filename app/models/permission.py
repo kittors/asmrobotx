@@ -22,5 +22,7 @@ class Permission(TimestampMixin, SoftDeleteMixin, Base):
     roles: Mapped[List["Role"]] = relationship(
         "Role",
         secondary=role_permissions,
+        primaryjoin="Permission.id == role_permissions.c.permission_id",
+        secondaryjoin="Role.id == role_permissions.c.role_id",
         back_populates="permissions",
     )

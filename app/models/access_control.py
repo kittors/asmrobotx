@@ -2,8 +2,8 @@
 
 from typing import Any, List, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Integer, JSON, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Boolean, Integer, JSON, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 
 from app.core.enums import AccessControlTypeEnum
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin, role_access_controls
@@ -18,10 +18,7 @@ class AccessControlItem(TimestampMixin, SoftDeleteMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    parent_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("access_control_items.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    parent_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     name: Mapped[str] = mapped_column(String(100), index=True)
     type: Mapped[str] = mapped_column(String(20), default=AccessControlTypeEnum.MENU.value)
     icon: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -37,15 +34,21 @@ class AccessControlItem(TimestampMixin, SoftDeleteMixin, Base):
 
     parent: Mapped[Optional["AccessControlItem"]] = relationship(
         "AccessControlItem",
-        remote_side="AccessControlItem.id",
+        primaryjoin=lambda: foreign(AccessControlItem.parent_id) == AccessControlItem.id,
+        remote_side=lambda: AccessControlItem.id,
+        foreign_keys=lambda: AccessControlItem.parent_id,
         back_populates="children",
     )
     children: Mapped[List["AccessControlItem"]] = relationship(
         "AccessControlItem",
+        primaryjoin=lambda: foreign(AccessControlItem.parent_id) == AccessControlItem.id,
+        foreign_keys=lambda: AccessControlItem.parent_id,
         back_populates="parent",
     )
     roles: Mapped[List["Role"]] = relationship(
         "Role",
         secondary=role_access_controls,
+        primaryjoin="AccessControlItem.id == role_access_controls.c.access_control_id",
+        secondaryjoin="Role.id == role_access_controls.c.role_id",
         back_populates="access_controls",
     )

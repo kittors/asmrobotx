@@ -7,11 +7,17 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import status as http_status
 from sqlalchemy.orm import Session
 
 from app.api.v1.schemas.logs import (
     LoginLogDeletionResponse,
     LoginLogListResponse,
+    MonitorRuleCreate,
+    MonitorRuleDeletionResponse,
+    MonitorRuleDetailResponse,
+    MonitorRuleListResponse,
+    MonitorRuleUpdate,
     OperationLogDeletionResponse,
     OperationLogDetailResponse,
     OperationLogListResponse,
@@ -27,6 +33,7 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 
 @router.get("/operations", response_model=OperationLogListResponse)
 def list_operation_logs(
+    request: Request,
     module: Optional[str] = Query(None, description="系统模块名称模糊匹配"),
     operator_name: Optional[str] = Query(None, description="操作人员名称模糊匹配"),
     operator_ip: Optional[str] = Query(None, description="操作地址/IP 模糊匹配"),
@@ -38,21 +45,57 @@ def list_operation_logs(
     page: int = Query(1, ge=1, description="页码，从 1 开始"),
     page_size: int = Query(20, ge=1, le=200, description="每页数量"),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> OperationLogListResponse:
-    return log_service.list_operation_logs(
-        db,
-        module=module,
-        operator_name=operator_name,
-        operator_ip=operator_ip,
-        operation_types=_normalize_sequence(operation_types),
-        statuses=_normalize_sequence(statuses),
-        request_uri=request_uri,
-        start_time=_parse_datetime(start_time),
-        end_time=_parse_datetime(end_time),
-        page=page,
-        page_size=page_size,
-    )
+    started_at = datetime.now(timezone.utc)
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+
+    try:
+        response_payload = log_service.list_operation_logs(
+            db,
+            module=module,
+            operator_name=operator_name,
+            operator_ip=operator_ip,
+            operation_types=_normalize_sequence(operation_types),
+            statuses=_normalize_sequence(statuses),
+            request_uri=request_uri,
+            start_time=_parse_datetime(start_time),
+            end_time=_parse_datetime(end_time),
+            page=page,
+            page_size=page_size,
+        )
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            module_name="日志管理",
+            business_type="query",
+            class_method="app.api.v1.endpoints.logs.list_operation_logs",
+            request_body={
+                "module": module,
+                "operator_name": operator_name,
+                "operator_ip": operator_ip,
+                "operation_types": operation_types,
+                "statuses": statuses,
+                "request_uri": request_uri,
+                "start_time": start_time,
+                "end_time": end_time,
+                "page": page,
+                "page_size": page_size,
+            },
+            response_body=_summarize_list_response(response_payload),
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
 
 
 @router.get("/operations/export")
@@ -170,6 +213,75 @@ def clear_operation_logs(
     _: User = Depends(get_current_active_user),
 ) -> OperationLogDeletionResponse:
     return log_service.clear_operation_logs(db)
+
+
+@router.get("/monitor-rules", response_model=MonitorRuleListResponse)
+def list_monitor_rules(
+    request_uri: Optional[str] = Query(None, description="请求地址模糊匹配"),
+    http_method: Optional[str] = Query(None, description="HTTP 方法"),
+    match_mode: Optional[str] = Query(None, description="匹配模式: exact/prefix"),
+    is_enabled: Optional[bool] = Query(None, description="是否启用"),
+    operation_type_code: Optional[str] = Query(None, description="规则类型编码"),
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    page_size: int = Query(20, ge=1, le=200, description="每页数量"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> MonitorRuleListResponse:
+    return log_service.list_monitor_rules(
+        db,
+        request_uri=request_uri,
+        http_method=http_method,
+        match_mode=match_mode,
+        is_enabled=is_enabled,
+        operation_type_code=operation_type_code,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.post(
+    "/monitor-rules",
+    response_model=MonitorRuleDetailResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+def create_monitor_rule(
+    payload: MonitorRuleCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> MonitorRuleDetailResponse:
+    return log_service.create_monitor_rule(db, payload=payload.model_dump(exclude_none=True))
+
+
+@router.get("/monitor-rules/{rule_id}", response_model=MonitorRuleDetailResponse)
+def get_monitor_rule_detail(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> MonitorRuleDetailResponse:
+    return log_service.get_monitor_rule(db, rule_id=rule_id)
+
+
+@router.put("/monitor-rules/{rule_id}", response_model=MonitorRuleDetailResponse)
+def update_monitor_rule(
+    rule_id: int,
+    payload: MonitorRuleUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> MonitorRuleDetailResponse:
+    return log_service.update_monitor_rule(
+        db,
+        rule_id=rule_id,
+        payload=payload.model_dump(exclude_unset=True, exclude_none=False),
+    )
+
+
+@router.delete("/monitor-rules/{rule_id}", response_model=MonitorRuleDeletionResponse)
+def delete_monitor_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> MonitorRuleDeletionResponse:
+    return log_service.delete_monitor_rule(db, rule_id=rule_id)
 
 
 @router.get("/logins", response_model=LoginLogListResponse)

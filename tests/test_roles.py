@@ -56,6 +56,22 @@ def test_role_crud_flow_and_export(client: TestClient):
     headers = _auth_headers(client)
     permission_id = _create_permission_node(client, headers)
 
+    rule_name = f"角色日志规则-{uuid.uuid4().hex[:6]}"
+    monitor_resp = client.post(
+        "/api/v1/logs/monitor-rules",
+        headers=headers,
+        json={
+            "name": rule_name,
+            "request_uri": "/api/v1/roles",
+            "http_method": "ALL",
+            "match_mode": "prefix",
+            "is_enabled": True,
+            "description": "测试角色接口日志采集",
+            "operation_type_code": "query",
+        },
+    )
+    assert monitor_resp.status_code == 201
+
     create_resp = client.post(
         "/api/v1/roles",
         headers=headers,
@@ -165,7 +181,7 @@ def test_role_name_and_key_unique(client: TestClient):
     duplicate_name_resp = client.post(
         "/api/v1/roles",
         headers=headers,
-        json={base_payload | {"role_key": "role:unique:duplicate"}},
+        json=base_payload | {"role_key": "role:unique:duplicate"},
     )
     assert duplicate_name_resp.status_code == 409
     assert duplicate_name_resp.json()["msg"] == "角色名称已存在"
@@ -173,7 +189,7 @@ def test_role_name_and_key_unique(client: TestClient):
     duplicate_key_resp = client.post(
         "/api/v1/roles",
         headers=headers,
-        json={base_payload | {"name": "唯一角色副本"}},
+        json=base_payload | {"name": "唯一角色副本"},
     )
     assert duplicate_key_resp.status_code == 409
     assert duplicate_key_resp.json()["msg"] == "权限字符已存在"

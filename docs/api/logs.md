@@ -2,6 +2,8 @@
 
 提供操作日志与登录日志的后台管理能力，支持查询、详情、导出与清理。
 
+> **关于监听规则**：只有命中且处于启用状态的规则才会写入操作日志，所有匹配逻辑均基于数据库中的 `operation_log_monitor_rules` 配置表。可按请求 URI 与 HTTP 方法控制采集范围，避免在日志管理等敏感路径上形成递归记录。
+
 ## 操作日志
 
 ### 查询操作日志列表
@@ -17,6 +19,7 @@
   - `request_uri`：请求地址模糊查询
   - `start_time`/`end_time`：操作时间范围，格式 `YYYY-MM-DD HH:MM:SS`
   - `page`/`page_size`：分页控制
+- **额外说明**：仅当请求命中启用的监听规则时才会写入操作日志；禁用规则会阻止新记录产生，但历史数据仍会在列表中展示。
 - **响应示例**：
 
 ```json
@@ -93,3 +96,99 @@
 ## 序列生成
 
 服务层 `log_service` 暴露 `generate_operation_number` 与 `generate_visit_number` 方法，可用于按照 `时间戳 + 微秒` 规则生成 20 位纯数字编号，保证唯一性。
+
+## 监听规则维护
+
+`operation_log_monitor_rules` 支持以下核心字段：
+
+- `request_uri` / `match_mode`：用于描述匹配策略，支持 `exact` 精确匹配与 `prefix` 前缀匹配；
+- `http_method`：HTTP 方法，`ALL` 表示对所有方法生效；
+- `is_enabled`：控制是否采集与展示命中的请求；
+- `operation_type_code`：可自定义的业务类型编码（如 `create`、`update`、`query` 等，标签可通过字典 `operation_log_type` 获取）；
+- `description`：规则用途说明。
+
+默认会预置一条禁用 `/api/v1/logs/operations` 前缀的规则，避免日志管理接口互相记录。若希望采集该接口的访问，需要手动将规则启用；其它业务接口亦需新增并启用对应的规则才会产生操作日志。
+
+### 接口
+
+- `GET /api/v1/logs/monitor-rules`
+  - **说明**：分页查询监听规则，支持按 URI、HTTP 方法、匹配模式、启用状态以及类型编码过滤。
+  - **查询参数**：
+    - `request_uri`：URI 关键词模糊匹配；
+    - `http_method`：HTTP 方法，大小写不敏感；
+    - `match_mode`：`exact` 或 `prefix`；
+    - `is_enabled`：布尔值，过滤启用/禁用规则；
+    - `operation_type_code`：自定义的类型编码；
+    - `page`/`page_size`：分页参数，默认 1/20。
+  - **响应示例**：
+
+    ```json
+    {
+      "code": 200,
+      "msg": "获取监听规则列表成功",
+      "data": {
+        "total": 1,
+        "page": 1,
+        "page_size": 20,
+        "items": [
+          {
+            "id": 3,
+            "name": "日志接口自审计屏蔽",
+            "request_uri": "/api/v1/logs/operations",
+            "http_method": "ALL",
+            "match_mode": "prefix",
+            "is_enabled": false,
+            "description": "避免记录日志管理接口自身触发的操作日志",
+            "operation_type_code": "query",
+            "operation_type_label": "查询",
+            "create_time": "2024-05-18 09:30:15",
+            "update_time": "2024-05-18 09:30:15"
+          }
+        ]
+      }
+    }
+    ```
+
+- `POST /api/v1/logs/monitor-rules`
+  - **说明**：新增监听规则。
+  - **请求体字段**：
+    - `request_uri` *(必填)*：需要匹配的 URI；
+    - `http_method` *(默认 `ALL`)*：HTTP 方法；
+    - `match_mode` *(默认 `exact`)*：`exact` 精确匹配 或 `prefix` 前缀匹配；
+    - `is_enabled` *(默认 `true`)*：布尔值，是否启用；
+    - `name`、`description`：可选的说明信息；
+    - `operation_type_code`：自定义类型编码（标签可通过字典数据映射）。
+  - **请求示例**：
+
+    ```json
+    {
+      "name": "接口导出不记录",
+      "request_uri": "/api/v1/report/export",
+      "http_method": "POST",
+      "match_mode": "prefix",
+      "is_enabled": false,
+      "operation_type_code": "export",
+      "description": "报表导出不需要记录操作日志"
+    }
+    ```
+  - **成功响应**：返回创建后的规则详情（同列表项结构），`code` 为 201。
+
+- `GET /api/v1/logs/monitor-rules/{rule_id}`
+  - **说明**：按主键获取单条规则详情。
+  - **响应结构**：`data` 为单个规则对象，字段与列表项一致。
+
+- `PUT /api/v1/logs/monitor-rules/{rule_id}`
+  - **说明**：更新规则；请求体支持部分字段，未提供的字段保持不变。
+  - **请求示例**：
+
+    ```json
+    {
+      "is_enabled": true
+    }
+    ```
+  - **响应**：返回更新后的规则详情。
+
+- `DELETE /api/v1/logs/monitor-rules/{rule_id}`
+  - **说明**：软删除规则，响应 `data` 包含 `{ "rule_id": <id> }`。
+
+在管理界面或调用上述接口时，可自由维护类型编码与中文名称，满足本地化或扩展需求。所有接口统一返回 `code`、`msg`、`data` 结构，并可能在 `meta` 字段返回刷新后的访问令牌（若存在）。

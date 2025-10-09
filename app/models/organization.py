@@ -16,4 +16,9 @@ class Organization(TimestampMixin, SoftDeleteMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
 
-    users: Mapped[List["User"]] = relationship("User", back_populates="organization")
+    users: Mapped[List["User"]] = relationship(
+        "User",
+        primaryjoin="User.organization_id == Organization.id",
+        foreign_keys="User.organization_id",
+        back_populates="organization",
+    )

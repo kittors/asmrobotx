@@ -3,10 +3,30 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin
+
+
+class OperationLogMonitorRule(TimestampMixin, SoftDeleteMixin, Base):
+    """配置操作日志监听规则，可基于 URI 与请求方法控制是否采集。"""
+
+    __tablename__ = "operation_log_monitor_rules"
+
+    __table_args__ = (
+        CheckConstraint("match_mode IN ('exact', 'prefix')", name="ck_operation_log_monitor_rules_mode"),
+        CheckConstraint("http_method <> ''", name="ck_operation_log_monitor_rules_method"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    request_uri: Mapped[str] = mapped_column(String(255), nullable=False)
+    http_method: Mapped[str] = mapped_column(String(16), default="ALL", nullable=False)
+    match_mode: Mapped[str] = mapped_column(String(16), default="exact", nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    operation_type_code: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
 
 class OperationLog(TimestampMixin, SoftDeleteMixin, Base):

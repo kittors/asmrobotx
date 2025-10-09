@@ -88,3 +88,47 @@ OperationLogDetailResponse = ResponseEnvelope[OperationLogDetailData]
 OperationLogDeletionResponse = ResponseEnvelope[Optional[dict]]
 LoginLogListResponse = ResponseEnvelope[LoginLogListData]
 LoginLogDeletionResponse = ResponseEnvelope[Optional[dict]]
+
+
+class MonitorRuleBase(BaseModel):
+    name: Optional[str] = None
+    request_uri: Optional[str] = None
+    http_method: Optional[str] = None
+    match_mode: Optional[str] = None
+    is_enabled: Optional[bool] = None
+    description: Optional[str] = None
+    operation_type_code: Optional[str] = None
+
+
+class MonitorRuleCreate(MonitorRuleBase):
+    request_uri: str
+
+
+class MonitorRuleUpdate(MonitorRuleBase):
+    pass
+
+
+class MonitorRuleData(BaseModel):
+    id: int
+    name: Optional[str]
+    request_uri: str
+    http_method: str
+    match_mode: str
+    is_enabled: bool
+    description: Optional[str]
+    operation_type_code: Optional[str]
+    operation_type_label: Optional[str]
+    create_time: Optional[str]
+    update_time: Optional[str]
+
+
+class MonitorRuleListData(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: list[MonitorRuleData]
+
+
+MonitorRuleListResponse = ResponseEnvelope[MonitorRuleListData]
+MonitorRuleDetailResponse = ResponseEnvelope[MonitorRuleData]
+MonitorRuleDeletionResponse = ResponseEnvelope[Optional[dict]]

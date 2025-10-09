@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(50) UNIQUE NOT NULL,
     hashed_password VARCHAR(255) NOT NULL,
     nickname VARCHAR(100),
-    organization_id INTEGER REFERENCES organizations(id),
+    organization_id INTEGER,
     status VARCHAR(20) NOT NULL DEFAULT 'normal',
     remark VARCHAR(255),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -45,14 +45,14 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS user_roles (
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    role_id INTEGER REFERENCES roles(id) ON DELETE CASCADE,
+    user_id INTEGER,
+    role_id INTEGER,
     PRIMARY KEY (user_id, role_id)
 );
 
 CREATE TABLE IF NOT EXISTS role_permissions (
-    role_id INTEGER REFERENCES roles(id) ON DELETE CASCADE,
-    permission_id INTEGER REFERENCES permissions(id) ON DELETE CASCADE,
+    role_id INTEGER,
+    permission_id INTEGER,
     PRIMARY KEY (role_id, permission_id)
 );
 
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS dictionary_entries (
 
 CREATE TABLE IF NOT EXISTS access_control_items (
     id SERIAL PRIMARY KEY,
-    parent_id INTEGER REFERENCES access_control_items(id) ON DELETE SET NULL,
+    parent_id INTEGER,
     name VARCHAR(100) NOT NULL,
     type VARCHAR(20) NOT NULL DEFAULT 'menu',
     icon VARCHAR(100),
@@ -94,8 +94,8 @@ CREATE TABLE IF NOT EXISTS access_control_items (
 );
 
 CREATE TABLE IF NOT EXISTS role_access_controls (
-    role_id INTEGER REFERENCES roles(id) ON DELETE CASCADE,
-    access_control_id INTEGER REFERENCES access_control_items(id) ON DELETE CASCADE,
+    role_id INTEGER,
+    access_control_id INTEGER,
     PRIMARY KEY (role_id, access_control_id)
 );
 
@@ -122,6 +122,32 @@ CREATE TABLE IF NOT EXISTS operation_logs (
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+CREATE TABLE IF NOT EXISTS operation_log_monitor_rules (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100),
+    request_uri VARCHAR(255) NOT NULL,
+    http_method VARCHAR(16) NOT NULL DEFAULT 'ALL',
+    match_mode VARCHAR(16) NOT NULL DEFAULT 'exact',
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    description VARCHAR(255),
+    operation_type_code VARCHAR(32),
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT ck_operation_log_monitor_rules_mode CHECK (match_mode IN ('exact', 'prefix')),
+    CONSTRAINT ck_operation_log_monitor_rules_method CHECK (http_method <> '')
+);
+
+ALTER TABLE operation_log_monitor_rules
+    ADD COLUMN IF NOT EXISTS operation_type_code VARCHAR(32);
+
+ALTER TABLE operation_log_monitor_rules
+    DROP COLUMN IF EXISTS operation_type_label;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_operation_log_monitor_rules_active
+ON operation_log_monitor_rules(request_uri, http_method, match_mode)
+WHERE is_deleted = FALSE;
+
 CREATE TABLE IF NOT EXISTS login_logs (
     id SERIAL PRIMARY KEY,
     visit_number VARCHAR(32) UNIQUE NOT NULL,
@@ -138,6 +164,31 @@ CREATE TABLE IF NOT EXISTS login_logs (
     create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+INSERT INTO operation_log_monitor_rules (
+    name,
+    request_uri,
+    http_method,
+    match_mode,
+    is_enabled,
+    description,
+    operation_type_code
+)
+SELECT
+    '接口调用日志列表',
+    '/api/v1/logs/operations',
+    'ALL',
+    'prefix',
+    FALSE,
+    '获取接口调用的日志列表',
+    'query'
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM operation_log_monitor_rules
+    WHERE request_uri = '/api/v1/logs/operations'
+      AND http_method = 'ALL'
+      AND match_mode = 'prefix'
 );
 
 INSERT INTO organizations (name)
@@ -198,6 +249,20 @@ VALUES
     ('icon_list', '菜单', 'menu', '菜单/列表图标', 6)
 ON CONFLICT (type_code, value) DO NOTHING;
 
+INSERT INTO dictionary_entries (type_code, label, value, description, sort_order)
+VALUES
+    ('operation_log_type', '新增', 'create', '新增数据', 1),
+    ('operation_log_type', '修改', 'update', '修改数据', 2),
+    ('operation_log_type', '删除', 'delete', '删除数据', 3),
+    ('operation_log_type', '查询', 'query', '查询数据', 4),
+    ('operation_log_type', '授权', 'grant', '权限授权', 5),
+    ('operation_log_type', '导出', 'export', '数据导出', 6),
+    ('operation_log_type', '导入', 'import', '数据导入', 7),
+    ('operation_log_type', '强退', 'force_logout', '强制下线', 8),
+    ('operation_log_type', '清除数据', 'clean', '批量清除数据', 9),
+    ('operation_log_type', '其他', 'other', '其它操作', 10)
+ON CONFLICT (type_code, value) DO NOTHING;
+
 INSERT INTO access_control_items (
     id, parent_id, name, type, icon, is_external, permission_code, route_path,
     display_status, enabled_status, sort_order, component_path, route_params, keep_alive
@@ -218,9 +283,10 @@ VALUES
     (13, 10, '角色修改', 'button', NULL, FALSE, 'system:role:edit', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
     (14, 10, '角色删除', 'button', NULL, FALSE, 'system:role:remove', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
     (15, 10, '角色导出', 'button', NULL, FALSE, 'system:role:export', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
+    (26, 1, '访问管理', 'menu', 'settings', FALSE, 'system:accessControl:list', 'accessControl', 'show', 'enabled', 0, 'system/AccessControl/index', '{}'::jsonb, FALSE),
     (16, 1, '日志管理', 'menu', 'settings', FALSE, NULL, 'log', 'show', 'enabled', 0, NULL, '{}'::jsonb, FALSE),
-    (17, 16, '操作日志', 'menu', 'settings', FALSE, 'monitor:operlog:list', 'operlog', 'show', 'enabled', 0, 'monitor/operlog/index', '{}'::jsonb, FALSE),
-    (18, 16, '登录日志', 'menu', NULL, FALSE, 'monitor:logininfor:list', 'logininfor', 'show', 'enabled', 0, 'monitor/logininfor/index', '{}'::jsonb, FALSE),
+    (17, 16, '操作日志', 'menu', 'settings', FALSE, 'monitor:operlog:list', 'operlog', 'show', 'enabled', 0, 'system/monitor/operlog/index', '{}'::jsonb, FALSE),
+    (18, 16, '登录日志', 'menu', NULL, FALSE, 'monitor:logininfor:list', 'logininfor', 'show', 'enabled', 0, 'system/monitor/logininfor/index', '{}'::jsonb, FALSE),
     (19, 17, '操作查询', 'button', NULL, FALSE, 'monitor:operlog:query', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
     (20, 17, '操作删除', 'button', NULL, FALSE, 'monitor:operlog:remove', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
     (21, 17, '日志导出', 'button', NULL, FALSE, 'monitor:operlog:export', NULL, NULL, 'enabled', 0, NULL, '{}'::jsonb, FALSE),
