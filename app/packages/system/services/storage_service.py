@@ -87,18 +87,11 @@ class StorageService:
         normalized = self._normalize_payload(payload, partial=False)
         # 仅做连通性测试，不保存
         try:
-            # 对 S3 默认生成一个安全的前缀，避免误列举整个桶
-            path_prefix = normalized.get("path_prefix")
-            if (normalized["type"].upper() == "S3") and not path_prefix:
-                import re
-                base = normalized.get("config_key") or normalized["name"]
-                slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", base).strip("-") or "storage"
-                path_prefix = f"asmrobotx/{slug}"
             backend = build_backend(
                 type=normalized["type"],
                 region=normalized.get("region"),
                 bucket_name=normalized.get("bucket_name"),
-                path_prefix=path_prefix or normalized.get("path_prefix"),
+                path_prefix=normalized.get("path_prefix"),
                 local_root_path=normalized.get("local_root_path"),
                 access_key_id=normalized.get("access_key_id"),
                 secret_access_key=normalized.get("secret_access_key"),
@@ -157,13 +150,14 @@ class StorageService:
             for key in ("region", "bucket_name", "access_key_id", "secret_access_key", "path_prefix", "endpoint_url", "custom_domain"):
                 if not partial or key in payload:
                     result[key] = _opt(payload.get(key))
-            # 若为创建场景且未提供 path_prefix，则为安全起见自动生成
-            if not partial:
-                if not result.get("path_prefix"):
-                    import re
-                    base = (result.get("config_key") or result.get("name") or "storage")
-                    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", base).strip("-") or "storage"
-                    result["path_prefix"] = f"asmrobotx/{slug}"
+            # 规范化并校验 path_prefix（必须配置，且不能指向根目录）
+            if not partial or "path_prefix" in payload:
+                pfx = (result.get("path_prefix") or "").strip()
+                # 允许以 '/' 开头，但不允许仅为 '/' 或空
+                pfx_norm = pfx.lstrip("/")
+                if not pfx_norm:
+                    raise AppException("S3 配置字段 path_prefix 不能为空，且不能为根目录", HTTP_STATUS_BAD_REQUEST)
+                result["path_prefix"] = pfx_norm
             # use_https
             if not partial or "use_https" in payload:
                 use_https = payload.get("use_https") if payload.get("use_https") is not None else (existing.use_https if existing else True)
@@ -176,9 +170,11 @@ class StorageService:
                     raise AppException("S3 配置字段 acl_type 取值非法", HTTP_STATUS_BAD_REQUEST)
                 result["acl_type"] = acl_norm
             # 必填校验
-            for req in ("region", "bucket_name", "access_key_id", "secret_access_key"):
-                if not result.get(req):
-                    raise AppException(f"S3 配置字段 {req} 不能为空", HTTP_STATUS_BAD_REQUEST)
+            for req in ("region", "bucket_name", "access_key_id", "secret_access_key", "path_prefix"):
+                # 创建/测试必须提供；更新时仅在提供该字段时校验
+                if (not partial) or (partial and req in result):
+                    if not result.get(req):
+                        raise AppException(f"S3 配置字段 {req} 不能为空", HTTP_STATUS_BAD_REQUEST)
         else:  # LOCAL
             if not partial or "local_root_path" in payload:
                 root = _opt(payload.get("local_root_path"))

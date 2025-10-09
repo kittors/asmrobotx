@@ -114,7 +114,7 @@ SELECT
     v.operation_type_code
 FROM (VALUES
     ('访问控制-树查询', '/api/v1/access-controls', 'GET', 'exact', TRUE, '查询访问控制树', 'query'),
-    ('访问控制-路由获取', '/api/v1/access-controls/routers', 'GET', 'exact', TRUE, '获取动态路由配置', 'query'),
+    ('访问控制-路由获取', '/api/v1/access-controls/routers', 'GET', 'exact', FALSE, '获取动态路由配置', 'query'),
     ('访问控制-详情查询', '/api/v1/access-controls/{item_id}', 'GET', 'exact', TRUE, '获取访问控制项详情', 'query'),
     ('访问控制-新增', '/api/v1/access-controls', 'POST', 'exact', TRUE, '新增访问控制项', 'create'),
     ('访问控制-更新', '/api/v1/access-controls/{item_id}', 'PUT', 'exact', TRUE, '更新访问控制项', 'update'),
