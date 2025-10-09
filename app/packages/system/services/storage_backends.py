@@ -136,6 +136,9 @@ class LocalBackend(StorageBackend):
                 if search_lower and search_lower not in name.lower():
                     continue
                 if entry.is_dir():
+                    # 当指定了 file_type 且不为 'all' 时，仅返回文件，不返回目录
+                    if file_type and file_type != "all":
+                        continue
                     items.append(
                         {
                             "name": name,
@@ -347,6 +350,9 @@ class S3Backend(StorageBackend):
                 if not name:
                     continue
                 if search_lower and search_lower not in name.lower():
+                    continue
+                # 当指定了 file_type 且不为 'all' 时，仅返回文件，不返回目录
+                if file_type and file_type != "all":
                     continue
                 items.append(
                     {

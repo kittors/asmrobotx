@@ -64,6 +64,15 @@ class StorageService:
         storage_config_crud.soft_delete(db, config)
         return create_response("删除存储源成功", None, HTTP_STATUS_OK)
 
+    def get_config(self, db: Session, *, id: int) -> Dict[str, Any]:
+        """获取单个存储源配置详情。"""
+        config = storage_config_crud.get(db, id)
+        if config is None:
+            raise AppException("存储源不存在或已删除", HTTP_STATUS_NOT_FOUND)
+        return create_response(
+            "获取存储源详情成功", self._serialize_config(config, include_status=True), HTTP_STATUS_OK
+        )
+
     def test_connection(self, db: Session, payload: dict) -> Dict[str, Any]:
         normalized = self._normalize_payload(payload, partial=False)
         # 仅做连通性测试，不保存
@@ -135,15 +144,20 @@ class StorageService:
         return result
 
     def _serialize_config(self, item: StorageConfig, *, include_status: bool = False) -> dict[str, Any]:
+        """将存储源配置序列化为响应数据。
+
+        注意：遵循 API 响应的 snake_case 字段约定，避免与 Pydantic 模型不匹配
+        导致字段丢失（例如 local_root_path）。
+        """
         data = {
             "id": item.id,
             "name": item.name,
             "type": item.type,
             "region": item.region,
-            "bucketName": item.bucket_name,
-            "pathPrefix": item.path_prefix,
-            "localRootPath": item.local_root_path,
-            "createdAt": format_datetime(item.create_time),
+            "bucket_name": item.bucket_name,
+            "path_prefix": item.path_prefix,
+            "local_root_path": item.local_root_path,
+            "created_at": format_datetime(item.create_time),
         }
         if include_status:
             try:

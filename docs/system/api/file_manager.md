@@ -17,11 +17,30 @@
       "id": 1,
       "name": "本地存储 (默认)",
       "type": "LOCAL",
-      "localRootPath": "/tmp/asmrobotx-files",
+      "local_root_path": "/tmp/asmrobotx-files",
       "status": "connected",
-      "createdAt": "2025-01-01T10:00:00Z"
+      "created_at": "2025-01-01T10:00:00Z"
     }
   ]
+}
+```
+
+### GET /storage-configs/{id}
+获取单个存储源配置详情。
+
+响应示例：
+```json
+{
+  "msg": "获取存储源详情成功",
+  "code": 200,
+  "data": {
+    "id": 1,
+    "name": "本地存储 (默认)",
+    "type": "LOCAL",
+    "local_root_path": "/tmp/asmrobotx-files",
+    "status": "connected",
+    "created_at": "2025-01-01T10:00:00Z"
+  }
 }
 ```
 
@@ -73,6 +92,9 @@
 列出目录内容。
 
 查询：`storageId`, `path=/`, `fileType=image|document|spreadsheet|pdf|markdown|all`, `search`
+
+- 当提供 `fileType` 且不为 `all` 时：仅返回匹配类型的“文件”，目录将被隐藏；
+- 当未提供或为 `all`：返回当前目录下的目录与所有文件。
 
 响应：
 ```json
@@ -145,4 +167,3 @@
   - 生产示例：`LOCAL_FILE_ROOT=/data/asmrobotx-files`（建议挂载持久卷）
 
 > 提示：S3 功能需后端安装 `boto3`（已在 requirements.txt 中）。
-

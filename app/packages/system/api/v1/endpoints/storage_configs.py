@@ -22,6 +22,11 @@ def list_configs(db: Session = Depends(get_db), _: User = Depends(get_current_ac
     return storage_service.list_configs(db)
 
 
+@router.get("/{config_id}", response_model=StorageConfigMutationResponse)
+def get_config(config_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_active_user)):
+    return storage_service.get_config(db, id=config_id)
+
+
 @router.post("", response_model=StorageConfigMutationResponse)
 def create_config(payload: StorageConfigCreate, db: Session = Depends(get_db), _: User = Depends(get_current_active_user)):
     return storage_service.create_config(db, payload.model_dump())
@@ -45,4 +50,3 @@ def delete_config(config_id: int = Path(..., ge=1), db: Session = Depends(get_db
 @router.post("/test", response_model=StorageTestResponse)
 def test_config(payload: StorageConfigCreate, db: Session = Depends(get_db), _: User = Depends(get_current_active_user)):
     return storage_service.test_connection(db, payload.model_dump())
-
