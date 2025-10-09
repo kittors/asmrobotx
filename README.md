@@ -51,6 +51,27 @@
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+source .venv/bin/activate
+
+运行与文件管理
+- 启动开发服务：
+  - uvicorn app.main:app --reload
+- 本地文件根目录（可选）：在 .env 中配置 `LOCAL_FILE_ROOT` 用于自动创建默认的本地存储源。
+  - 示例：
+    - 开发：`LOCAL_FILE_ROOT=/tmp/asmrobotx-files`
+    - 生产：`LOCAL_FILE_ROOT=/data/asmrobotx-files`（建议持久化卷）
+- 首次启动若未存在任何存储源，系统会根据 `LOCAL_FILE_ROOT` 自动创建名为“本地存储 (默认)”的存储源。
+
+API 文档补充
+- 文件管理 API 参考：docs/system/api/file_manager.md
+- 主要端点：
+  - 存储源管理：/api/v1/storage-configs, /api/v1/storage-configs/test
+  - 文件管理：/api/v1/files 列表/上传/下载/预览/重命名/移动/复制/删除；/api/v1/folders 创建
+
+测试
+- 运行测试：pytest -q
+- 含文件管理集成测试（LOCAL）：tests/system/test_file_manager.py
 cp .env.development .env
 ```
 根据需要修改 `.env` 中的数据库、Redis、JWT 等配置。

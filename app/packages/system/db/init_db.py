@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from sqlalchemy.orm import Session
+import os
 
 from app.packages.system.core.constants import (
     ADMIN_ROLE,
@@ -22,6 +23,8 @@ from app.packages.system.models.dictionary import DictionaryType
 from app.packages.system.models.organization import Organization
 from app.packages.system.models.role import Role
 from app.packages.system.models.user import User
+from app.packages.system.crud.storage_config import storage_config_crud
+from app.packages.system.models.storage import StorageConfig
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,7 @@ def init_db() -> None:
     session = db_session.SessionLocal()
     try:
         _seed_core_entities(session)
+        _seed_default_storage_if_needed(session)
         _seed_dictionaries_from_sql_if_needed(session)
         session.commit()
     except Exception:  # pragma: no cover - initialization failures should not crash gracefully
@@ -117,6 +121,28 @@ def _seed_core_entities(db: Session) -> None:
         db.add(admin_user)
 
     # 字典相关的默认数据从 SQL 脚本注入，不在此处维护。
+
+
+def _seed_default_storage_if_needed(db: Session) -> None:
+    """若配置了 LOCAL_FILE_ROOT 且当前无任何存储源，则创建一个默认的本地存储源。
+
+    该逻辑幂等：仅当 storage_configs 为空时触发。
+    """
+    try:
+        if storage_config_crud.count(db) > 0:
+            return
+        local_root = os.getenv("LOCAL_FILE_ROOT")
+        if not local_root:
+            return
+        cfg = StorageConfig(
+            name="本地存储 (默认)",
+            type="LOCAL",
+            local_root_path=local_root,
+        )
+        db.add(cfg)
+        db.flush()
+    except Exception:
+        logger.warning("Failed to seed default local storage from LOCAL_FILE_ROOT", exc_info=True)
 
 
 def _seed_dictionaries_from_sql_if_needed(db: Session) -> None:
