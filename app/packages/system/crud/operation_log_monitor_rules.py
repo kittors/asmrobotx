@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple
+import re
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -21,7 +22,17 @@ class OperationLogMonitorRuleCRUD(CRUDBase[OperationLogMonitorRule]):
         request_uri: str,
         http_method: Optional[str],
     ) -> Optional[OperationLogMonitorRule]:
-        """返回与请求最匹配的监控规则，支持前缀与精确匹配优先级。"""
+        """返回与请求最匹配的监控规则。
+
+        支持两类匹配：
+        - exact：精确匹配；当规则 URI 中包含 `{param}` 形式的段时，按模板匹配单段路径
+          （例如 `/a/{id}` 可匹配 `/a/123`，仅对 path 生效，忽略查询串）。
+        - prefix：前缀匹配；当规则 URI 中包含 `{param}` 段时，会匹配以该模板为起始的更长路径
+          （例如 `/a/{id}` 可匹配 `/a/123/edit`）。
+
+        为避免误判，模板匹配仅在规则 URI 本身含有花括号时启用；其余情况沿用原有的
+        字符串等值/startswith 判断。
+        """
 
         if not request_uri:
             return None
@@ -39,13 +50,28 @@ class OperationLogMonitorRuleCRUD(CRUDBase[OperationLogMonitorRule]):
             .all()
         )
 
+        # 仅用于模板匹配：从请求 URI 中剥离查询串，仅保留 path 用于与模板匹配
+        path_only = request_uri.split("?", 1)[0]
+
         best_match: Optional[Tuple[Tuple[int, int, int, int], OperationLogMonitorRule]] = None
         for rule in candidates:
+            is_template = "{" in rule.request_uri and "}" in rule.request_uri
+
             if rule.match_mode == "exact":
-                matched = request_uri == rule.request_uri
+                if is_template:
+                    # 模板精确匹配：必须与规则模板在 path 维度上完全一致
+                    pattern = self._compile_path_template(rule.request_uri, exact=True)
+                    matched = bool(pattern.fullmatch(path_only))
+                else:
+                    matched = request_uri == rule.request_uri
                 mode_score = 2
-            else:
-                matched = request_uri.startswith(rule.request_uri)
+            else:  # prefix
+                if is_template:
+                    # 模板前缀匹配：允许在模板后出现更长的路径（例如子资源）
+                    pattern = self._compile_path_template(rule.request_uri, exact=False)
+                    matched = bool(pattern.match(path_only))
+                else:
+                    matched = request_uri.startswith(rule.request_uri)
                 mode_score = 1
 
             if not matched:
@@ -59,6 +85,37 @@ class OperationLogMonitorRuleCRUD(CRUDBase[OperationLogMonitorRule]):
                 best_match = (current_rank, rule)
 
         return best_match[1] if best_match else None
+
+    @staticmethod
+    def _compile_path_template(template: str, *, exact: bool) -> re.Pattern[str]:
+        """将形如 "/a/{id}/b" 的模板转为正则。
+
+        - `{name}` 会被视为单段匹配 `[^/]+`
+        - 其它字符会被按字面转义
+        - exact=True 时，整体采用 `^...$`；否则采用 `^...(?:/.*)?$` 以支持前缀扩展
+        - 仅匹配 path，不包含查询参数
+        """
+
+        # 将模板分段处理，避免误伤 '/'
+        parts = template.split("/")
+        regex_parts: list[str] = []
+        for part in parts:
+            if not part:
+                regex_parts.append("")
+                continue
+            if part.startswith("{") and part.endswith("}") and len(part) >= 3:
+                # 使用非捕获命名也可，但此处仅需匹配，不使用参数值
+                regex_parts.append(r"[^/]+")
+            else:
+                regex_parts.append(re.escape(part))
+
+        core = "/".join(regex_parts)
+        if exact:
+            pattern = f"^{core}$"
+        else:
+            # 允许在模板后跟任意更深层级
+            pattern = f"^{core}(?:/.*)?$"
+        return re.compile(pattern)
 
     def list_disabled_rules(self, db: Session) -> list[OperationLogMonitorRule]:
         """列出所有显式禁用的监听规则。"""

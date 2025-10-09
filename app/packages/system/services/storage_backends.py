@@ -87,6 +87,7 @@ class StorageBackend:
 class LocalBackend(StorageBackend):
     def __init__(self, root: str):
         self.root = Path(root).resolve()
+        self._record_file = self.root / ".dir_ops.jsonl"
         if not self.root.exists():
             try:
                 self.root.mkdir(parents=True, exist_ok=True)
@@ -104,6 +105,34 @@ class LocalBackend(StorageBackend):
         except Exception as exc:
             raise AppException("非法路径: 越权访问", HTTP_STATUS_BAD_REQUEST) from exc
         return candidate
+
+    def _rel(self, p: Path, *, ensure_trailing_slash: bool = False) -> str:
+        try:
+            rel = "/" + (str(p.resolve().relative_to(self.root)) if p.resolve() != self.root else "")
+        except Exception:
+            rel = "/"
+        if ensure_trailing_slash and not rel.endswith("/"):
+            rel += "/"
+        return rel
+
+    def _append_dir_event(self, *, action: str, path_old: Optional[str] = None, path_new: Optional[str] = None) -> None:
+        """将目录相关的操作追加到根目录下的记录文件（JSON Lines）。"""
+        try:
+            from datetime import datetime, timezone
+            import json
+
+            event = {
+                "action": action,
+                "path_old": path_old,
+                "path_new": path_new,
+                "operate_time": datetime.now(timezone.utc).isoformat(),
+            }
+            self._record_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._record_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        except Exception:
+            # 记录失败不影响主流程
+            pass
 
     def _filter_type(self, name: str, file_type: Optional[str]) -> bool:
         if not file_type or file_type == "all":
@@ -149,6 +178,12 @@ class LocalBackend(StorageBackend):
                         }
                     )
                 else:
+                    # 隐藏内部记录文件（不对外展示）
+                    try:
+                        if entry.name == self._record_file.name:
+                            continue
+                    except Exception:
+                        pass
                     if not self._filter_type(name, file_type):
                         continue
                     abs_path = str(entry)
@@ -177,18 +212,38 @@ class LocalBackend(StorageBackend):
         results: list[dict] = []
         for filename, content in files:
             safe_name = os.path.basename(filename)
-            dst = target_dir / safe_name
-            if dst.exists():
-                results.append({"name": safe_name, "status": "failure", "message": "上传失败：文件名已存在"})
-                continue
+            # 若存在同名文件，则自动生成别名：name(1).ext / name(2).ext ...
+            final_name = self._dedupe_filename(target_dir, safe_name)
+            dst = target_dir / final_name
             try:
                 with open(dst, "wb") as f:
                     f.write(content)
-                results.append({"name": safe_name, "status": "success", "message": "文件上传成功"})
+                results.append({
+                    "name": safe_name,
+                    "stored_name": final_name,
+                    "status": "success",
+                    "message": "文件上传成功",
+                })
             except Exception as exc:
                 logger.exception("Local upload failed: %s", exc)
                 results.append({"name": safe_name, "status": "failure", "message": "上传失败：服务器错误"})
         return results
+
+    def _dedupe_filename(self, directory: Path, name: str) -> str:
+        """在 directory 下生成不冲突的文件名。
+
+        例如：
+        - foo.png -> 若已存在则 foo(1).png, foo(2).png ...
+        - readme -> readme(1), readme(2) ...
+        """
+        base = os.path.splitext(name)[0]
+        ext = os.path.splitext(name)[1]
+        candidate = name
+        idx = 1
+        while (directory / candidate).exists():
+            candidate = f"{base}({idx}){ext}"
+            idx += 1
+        return candidate
 
     def download(self, *, path: str):
         target = self._resolve(path)
@@ -214,11 +269,17 @@ class LocalBackend(StorageBackend):
         safe_name = os.path.basename(name.strip())
         if not safe_name:
             raise AppException("文件夹名称不能为空", HTTP_STATUS_BAD_REQUEST)
-        new_dir = parent_dir / safe_name
-        if new_dir.exists():
-            raise AppException("同名文件或文件夹已存在", HTTP_STATUS_BAD_REQUEST)
+        # 若存在同名目录，自动生成别名：name(1)、name(2) ...
+        final_name = safe_name
+        idx = 1
+        while (parent_dir / final_name).exists():
+            final_name = f"{safe_name}({idx})"
+            idx += 1
+        new_dir = parent_dir / final_name
         new_dir.mkdir(parents=False, exist_ok=False)
-        return create_response("文件夹创建成功", {"folder_name": safe_name}, HTTP_STATUS_OK)
+        # 记录目录创建
+        self._append_dir_event(action="create", path_new=self._rel(new_dir, ensure_trailing_slash=True))
+        return create_response("文件夹创建成功", {"folder_name": final_name}, HTTP_STATUS_OK)
 
     def rename(self, *, old_path: str, new_path: str) -> dict:
         src = self._resolve(old_path)
@@ -228,7 +289,14 @@ class LocalBackend(StorageBackend):
         if dst.exists():
             raise AppException("目标路径已存在", HTTP_STATUS_BAD_REQUEST)
         dst.parent.mkdir(parents=True, exist_ok=True)
+        was_dir = src.is_dir()
         src.rename(dst)
+        if was_dir:
+            self._append_dir_event(
+                action="rename",
+                path_old=self._rel(src, ensure_trailing_slash=True),
+                path_new=self._rel(dst, ensure_trailing_slash=True),
+            )
         return create_response("重命名成功", None, HTTP_STATUS_OK)
 
     def move(self, *, source_paths: List[str], destination_path: str) -> dict:
@@ -245,7 +313,14 @@ class LocalBackend(StorageBackend):
             dst = dst_dir / src.name
             if dst.exists():
                 raise AppException(f"目标已存在: {dst.name}", HTTP_STATUS_BAD_REQUEST)
+            was_dir = src.is_dir()
             shutil.move(str(src), str(dst))
+            if was_dir:
+                self._append_dir_event(
+                    action="move",
+                    path_old=self._rel(src, ensure_trailing_slash=True),
+                    path_new=self._rel(dst, ensure_trailing_slash=True),
+                )
         return create_response("文件/文件夹移动成功", None, HTTP_STATUS_OK)
 
     def copy(self, *, source_paths: List[str], destination_path: str) -> dict:
@@ -263,6 +338,11 @@ class LocalBackend(StorageBackend):
                 raise AppException(f"目标已存在: {dst.name}", HTTP_STATUS_BAD_REQUEST)
             if src.is_dir():
                 shutil.copytree(src, dst)
+                self._append_dir_event(
+                    action="copy",
+                    path_old=self._rel(src, ensure_trailing_slash=True),
+                    path_new=self._rel(dst, ensure_trailing_slash=True),
+                )
             else:
                 shutil.copy2(src, dst)
         return create_response("文件/文件夹复制成功", None, HTTP_STATUS_OK)
@@ -274,6 +354,8 @@ class LocalBackend(StorageBackend):
                 # 允许幂等：不存在则忽略
                 continue
             if target.is_dir():
+                # 记录目录删除
+                self._append_dir_event(action="delete", path_old=self._rel(target, ensure_trailing_slash=True))
                 shutil.rmtree(target)
             else:
                 target.unlink()
@@ -286,7 +368,19 @@ class LocalBackend(StorageBackend):
 
 
 class S3Backend(StorageBackend):
-    def __init__(self, *, bucket: str, region: str, access_key_id: str, secret_access_key: str, prefix: Optional[str] = None):
+    def __init__(
+        self,
+        *,
+        bucket: str,
+        region: str,
+        access_key_id: str,
+        secret_access_key: str,
+        prefix: Optional[str] = None,
+        endpoint_url: Optional[str] = None,
+        custom_domain: Optional[str] = None,
+        use_https: Optional[bool] = True,
+        acl_type: Optional[str] = "private",
+    ):
         try:
             import boto3  # type: ignore
         except Exception as exc:
@@ -301,12 +395,27 @@ class S3Backend(StorageBackend):
         self.access_key_id = access_key_id
         self.secret_access_key = secret_access_key
         self.prefix = (prefix or "").lstrip("/")
-        self._client = self.boto3.client(
-            "s3",
-            region_name=region,
-            aws_access_key_id=access_key_id,
-            aws_secret_access_key=secret_access_key,
-        )
+        # 先设置 use_https，后续归一化 endpoint 需要依赖这个值
+        self.use_https = bool(use_https) if use_https is not None else True
+        # 归一化 endpoint：允许传入不带协议的主机名，按 use_https 自动补全
+        raw_endpoint = (endpoint_url or "").strip()
+        if raw_endpoint:
+            if not (raw_endpoint.startswith("http://") or raw_endpoint.startswith("https://")):
+                scheme = "https" if self.use_https else "http"
+                raw_endpoint = f"{scheme}://{raw_endpoint}"
+            self.endpoint_url = raw_endpoint
+        else:
+            self.endpoint_url = None
+        self.custom_domain = (custom_domain or None)
+        self.acl_type = (acl_type or "private")
+        client_kwargs = {
+            "region_name": region,
+            "aws_access_key_id": access_key_id,
+            "aws_secret_access_key": secret_access_key,
+        }
+        if self.endpoint_url:
+            client_kwargs["endpoint_url"] = self.endpoint_url
+        self._client = self.boto3.client("s3", **client_kwargs)
 
     # 拼接基于 path_prefix 的对象 key
     def _join_key(self, rel: str) -> str:
@@ -396,23 +505,45 @@ class S3Backend(StorageBackend):
             base_prefix += "/"
         for filename, content in files:
             key = base_prefix + os.path.basename(filename)
-            # 冲突检测：查询是否存在同名对象
-            exists = False
+            # 冲突检测并自动生成别名
+            final_key = self._dedupe_key(base_prefix, os.path.basename(filename))
             try:
-                resp = self._client.list_objects_v2(Bucket=self.bucket, Prefix=key, MaxKeys=1)
-                exists = (resp.get("KeyCount") or 0) > 0 and resp.get("Contents", [{}])[0].get("Key") == key
-            except Exception:
-                exists = False
-            if exists:
-                results.append({"name": os.path.basename(filename), "status": "failure", "message": "上传失败：文件名已存在"})
-                continue
-            try:
-                self._client.upload_fileobj(io.BytesIO(content), self.bucket, key)
-                results.append({"name": os.path.basename(filename), "status": "success", "message": "文件上传成功"})
+                self._client.upload_fileobj(io.BytesIO(content), self.bucket, final_key)
+                results.append({
+                    "name": os.path.basename(filename),
+                    "stored_name": final_key[len(base_prefix):] if final_key.startswith(base_prefix) else final_key,
+                    "status": "success",
+                    "message": "文件上传成功",
+                })
             except Exception as exc:
                 logger.exception("S3 upload failed: %s", exc)
                 results.append({"name": os.path.basename(filename), "status": "failure", "message": "上传失败：服务器错误"})
         return results
+
+    def _object_exists(self, key: str) -> bool:
+        try:
+            self._client.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except Exception:
+            # 可能是不存在或没有权限，用 list 兜底
+            try:
+                resp = self._client.list_objects_v2(Bucket=self.bucket, Prefix=key, MaxKeys=1)
+                for obj in resp.get("Contents", []):
+                    if obj.get("Key") == key:
+                        return True
+            except Exception:
+                return False
+            return False
+
+    def _dedupe_key(self, base_prefix: str, filename: str) -> str:
+        base = os.path.splitext(filename)[0]
+        ext = os.path.splitext(filename)[1]
+        candidate = base_prefix + filename
+        idx = 1
+        while self._object_exists(candidate):
+            candidate = f"{base_prefix}{base}({idx}){ext}"
+            idx += 1
+        return candidate
 
     def _presign(self, *, key: str, download: bool = True, filename: Optional[str] = None) -> str:
         params = {"Bucket": self.bucket, "Key": key}
@@ -428,25 +559,72 @@ class S3Backend(StorageBackend):
         except Exception as exc:
             raise AppException(f"预签名 URL 生成失败: {exc}", status.HTTP_500_INTERNAL_SERVER_ERROR) from exc
 
+    def _build_public_url(self, *, key: str) -> str:
+        from urllib.parse import urlparse
+
+        scheme = "https" if self.use_https else "http"
+        if self.custom_domain:
+            host = self.custom_domain.strip().strip("/")
+            return f"{scheme}://{host}/{key}"
+        # 退化到 endpoint_url 或 AWS 公有域名（path style）
+        if self.endpoint_url:
+            p = urlparse(self.endpoint_url)
+            host = p.netloc or self.endpoint_url.strip().split("//")[-1]
+            base = host.strip().strip("/")
+            return f"{scheme}://{base}/{self.bucket}/{key}"
+        # AWS 默认（区域域名变体很多，这里采用通用 path-style 回退）
+        return f"{scheme}://s3.{self.region}.amazonaws.com/{self.bucket}/{key}"
+
     def download(self, *, path: str):
         key = self._join_key(path)
         filename = os.path.basename(path)
-        url = self._presign(key=key, download=True, filename=filename)
+        if (self.acl_type or "private") == "private":
+            url = self._presign(key=key, download=True, filename=filename)
+        else:
+            url = self._build_public_url(key=key)
         return RedirectResponse(url)
 
     def preview(self, *, path: str):
         key = self._join_key(path)
-        url = self._presign(key=key, download=False)
+        if (self.acl_type or "private") == "private":
+            url = self._presign(key=key, download=False)
+        else:
+            url = self._build_public_url(key=key)
         return RedirectResponse(url)
 
     def mkdir(self, *, parent: str, name: str) -> dict:
         base = self._join_key(parent)
         if base and not base.endswith("/"):
             base += "/"
-        folder_key = f"{base}{name.strip().strip('/')}".strip("/") + "/"
+        raw_name = name.strip().strip("/")
+        if not raw_name:
+            raise AppException("文件夹名称不能为空", HTTP_STATUS_BAD_REQUEST)
+        folder_key = f"{base}{raw_name}".strip("/") + "/"
+        # 若已存在同名前缀，则自动重命名
+        final_key = folder_key
+        idx = 1
+        exists = False
+        try:
+            resp = self._client.list_objects_v2(Bucket=self.bucket, Prefix=folder_key, MaxKeys=1)
+            exists = (resp.get("KeyCount") or 0) > 0
+        except Exception:
+            exists = False
+        while exists:
+            alt_key = f"{base}{raw_name}({idx})/"
+            try:
+                resp = self._client.list_objects_v2(Bucket=self.bucket, Prefix=alt_key, MaxKeys=1)
+                exists = (resp.get("KeyCount") or 0) > 0
+                if not exists:
+                    final_key = alt_key
+                    break
+            except Exception:
+                final_key = alt_key
+                break
+            idx += 1
         # 创建一个占位对象
-        self._client.put_object(Bucket=self.bucket, Key=folder_key)
-        return create_response("文件夹创建成功", {"folder_name": name}, HTTP_STATUS_OK)
+        self._client.put_object(Bucket=self.bucket, Key=final_key)
+        folder_name = final_key[len(base):].rstrip("/") if base else final_key.rstrip("/")
+        return create_response("文件夹创建成功", {"folder_name": folder_name}, HTTP_STATUS_OK)
 
     def rename(self, *, old_path: str, new_path: str) -> dict:
         src_key = self._join_key(old_path)
@@ -536,6 +714,10 @@ def build_backend(
     local_root_path: Optional[str] = None,
     access_key_id: Optional[str] = None,
     secret_access_key: Optional[str] = None,
+    endpoint_url: Optional[str] = None,
+    custom_domain: Optional[str] = None,
+    use_https: Optional[bool] = True,
+    acl_type: Optional[str] = "private",
 ) -> StorageBackend:
     t = (type or "").upper()
     if t == "LOCAL":
@@ -551,5 +733,9 @@ def build_backend(
             access_key_id=access_key_id,
             secret_access_key=secret_access_key,
             prefix=path_prefix,
+            endpoint_url=endpoint_url,
+            custom_domain=custom_domain,
+            use_https=use_https,
+            acl_type=(acl_type or "private"),
         )
     raise AppException("不支持的存储类型", HTTP_STATUS_BAD_REQUEST)

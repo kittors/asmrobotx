@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
+import os
+import mimetypes
 
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
@@ -31,6 +33,10 @@ class FileService:
             local_root_path=cfg.local_root_path,
             access_key_id=cfg.access_key_id,
             secret_access_key=cfg.secret_access_key,
+            endpoint_url=getattr(cfg, "endpoint_url", None),
+            custom_domain=getattr(cfg, "custom_domain", None),
+            use_https=getattr(cfg, "use_https", True),
+            acl_type=getattr(cfg, "acl_type", "private"),
         )
         return backend
 
@@ -63,22 +69,75 @@ class FileService:
                 preview_url = f"/api/v1/files/preview?storageId={storage_id}&path={(data['current_path'] or '/')}{item['name']}"
                 converted["previewUrl"] = preview_url
             items.append(converted)
+        current_path = data.get("current_path", "/")
+        root_path: Optional[str] = None
+        # 若为本地存储，额外返回根目录的绝对路径（currentPath 仍保持相对路径样式）
+        try:
+            from app.packages.system.crud.storage_config import storage_config_crud
+
+            cfg = storage_config_crud.get(db, storage_id)
+            if cfg and (cfg.type or "").upper() == "LOCAL" and cfg.local_root_path:
+                root_path = os.path.abspath(cfg.local_root_path)
+        except Exception:
+            pass
+
         payload = {
-            "currentPath": data.get("current_path", "/"),
+            "currentPath": current_path,
             "items": items,
         }
+        if root_path:
+            payload["rootPath"] = root_path
         return create_response("获取文件列表成功", payload, HTTP_STATUS_OK)
 
     # ----------------------------
     # 上传/下载/预览
     # ----------------------------
-    async def upload(self, db: Session, *, storage_id: int, path: Optional[str], files: List[UploadFile]) -> List[dict]:
+    async def upload(self, db: Session, *, storage_id: int, path: Optional[str], files: List[UploadFile], purpose: Optional[str] = None) -> List[dict]:
         backend = self._get_backend(db, storage_id=storage_id)
         materials: List[Tuple[str, bytes]] = []
+        meta: List[Tuple[str, int, Optional[str]]] = []  # (orig_name, size, mime)
         for up in files:
             content = await up.read()
-            materials.append((up.filename, content))
+            orig_name = up.filename
+            size = len(content)
+            mime, _ = mimetypes.guess_type(orig_name or "")
+            materials.append((orig_name, content))
+            meta.append((orig_name, size, mime))
         results = backend.upload(path=path or "/", files=materials)
+
+        # 将成功上传的文件写入数据库记录
+        from app.packages.system.crud.file_record import file_record_crud
+
+        norm_dir = (path or "/").strip()
+        if not norm_dir.startswith("/"):
+            norm_dir = "/" + norm_dir
+        if not norm_dir.endswith("/"):
+            norm_dir += "/"
+        final_purpose = (purpose or "general").strip() or "general"
+
+        for i, res in enumerate(results):
+            try:
+                if res.get("status") != "success":
+                    continue
+                orig_name = meta[i][0]
+                size = meta[i][1]
+                mime = meta[i][2]
+                stored_name = res.get("stored_name") or orig_name
+                file_record_crud.create(
+                    db,
+                    {
+                        "storage_id": storage_id,
+                        "directory": norm_dir.rstrip("/"),
+                        "original_name": orig_name,
+                        "alias_name": stored_name,
+                        "purpose": final_purpose,
+                        "size_bytes": size,
+                        "mime_type": mime,
+                    },
+                )
+            except Exception:
+                # 记录失败不影响上传流程
+                pass
         return results
 
     def download(self, db: Session, *, storage_id: int, path: str):

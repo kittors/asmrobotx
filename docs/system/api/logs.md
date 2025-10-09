@@ -102,10 +102,15 @@
 `operation_log_monitor_rules` 支持以下核心字段：
 
 - `request_uri` / `match_mode`：用于描述匹配策略，支持 `exact` 精确匹配与 `prefix` 前缀匹配；
-- `http_method`：HTTP 方法，`ALL` 表示对所有方法生效；
-- `is_enabled`：控制是否采集与展示命中的请求；
-- `operation_type_code`：可自定义的业务类型编码（如 `create`、`update`、`query` 等，标签可通过字典 `operation_log_type` 获取）；
-- `description`：规则用途说明。
+  - `http_method`：HTTP 方法，`ALL` 表示对所有方法生效；
+  - `is_enabled`：控制是否采集与展示命中的请求；
+  - `operation_type_code`：可自定义的业务类型编码（如 `create`、`update`、`query` 等，标签可通过字典 `operation_log_type` 获取）；
+  - `description`：规则用途说明。
+
+> 提示：`request_uri` 支持使用路径参数模板（形如 `/api/v1/logs/monitor-rules/{rule_id}`）。
+> - 当 `match_mode = exact` 时，模板会按“单段路径”精确匹配：`/api/v1/logs/monitor-rules/{rule_id}` 可匹配 `/api/v1/logs/monitor-rules/123`（仅对路径生效，忽略查询串），但不会匹配 `/api/v1/logs/monitor-rules/123/extra`。
+> - 当 `match_mode = prefix` 时，模板可作为前缀：`/users/{user_id}` 可匹配 `/users/42/profile` 等更深层级路径。
+> - 模板占位符只匹配单个段（不跨越 `/`），不限制数据类型。
 
 默认会预置一条禁用 `/api/v1/logs/operations` 前缀的规则，避免日志管理接口互相记录。若希望采集该接口的访问，需要手动将规则启用；其它业务接口亦需新增并启用对应的规则才会产生操作日志。
 

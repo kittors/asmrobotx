@@ -35,6 +35,9 @@ class StorageService:
         existing = storage_config_crud.get_by_name(db, normalized["name"], include_deleted=True)
         if existing is not None:
             raise AppException("存储源名称已存在", HTTP_STATUS_CONFLICT)
+        if normalized.get("config_key"):
+            if storage_config_crud.get_by_key(db, normalized["config_key"], include_deleted=True):
+                raise AppException("配置 key 已存在", HTTP_STATUS_CONFLICT)
 
         created = storage_config_crud.create(db, normalized)
         # 可选：立即测试连接并返回状态
@@ -51,6 +54,9 @@ class StorageService:
         if "name" in merged and merged["name"] != config.name:
             if storage_config_crud.get_by_name(db, merged["name"], include_deleted=True):
                 raise AppException("存储源名称已存在", HTTP_STATUS_CONFLICT)
+        if "config_key" in merged and merged["config_key"] != (config.config_key or None):
+            if merged["config_key"] and storage_config_crud.get_by_key(db, merged["config_key"], include_deleted=True):
+                raise AppException("配置 key 已存在", HTTP_STATUS_CONFLICT)
 
         for k, v in merged.items():
             setattr(config, k, v)
@@ -85,6 +91,10 @@ class StorageService:
                 local_root_path=normalized.get("local_root_path"),
                 access_key_id=normalized.get("access_key_id"),
                 secret_access_key=normalized.get("secret_access_key"),
+                endpoint_url=normalized.get("endpoint_url"),
+                custom_domain=normalized.get("custom_domain"),
+                use_https=normalized.get("use_https"),
+                acl_type=normalized.get("acl_type"),
             )
             # 做一次最轻量的探测
             if normalized["type"].upper() == "LOCAL":
@@ -124,10 +134,29 @@ class StorageService:
 
         result["type"] = t
 
+        # 通用：config_key（可选）
+        if not partial or "config_key" in payload:
+            cfg_key = (payload.get("config_key") if payload.get("config_key") is not None else (existing.config_key if existing else None))
+            cfg_key = (cfg_key or None)
+            if cfg_key is not None:
+                text = str(cfg_key).strip()
+                result["config_key"] = text or None
+
         if t == "S3":
-            for key in ("region", "bucket_name", "access_key_id", "secret_access_key", "path_prefix"):
+            for key in ("region", "bucket_name", "access_key_id", "secret_access_key", "path_prefix", "endpoint_url", "custom_domain"):
                 if not partial or key in payload:
                     result[key] = _opt(payload.get(key))
+            # use_https
+            if not partial or "use_https" in payload:
+                use_https = payload.get("use_https") if payload.get("use_https") is not None else (existing.use_https if existing else True)
+                result["use_https"] = bool(use_https)
+            # acl_type
+            if not partial or "acl_type" in payload:
+                acl = payload.get("acl_type") if payload.get("acl_type") is not None else (existing.acl_type if existing else "private")
+                acl_norm = (str(acl).strip().lower() if isinstance(acl, str) else acl) or "private"
+                if acl_norm not in {"private", "public", "custom"}:
+                    raise AppException("S3 配置字段 acl_type 取值非法", HTTP_STATUS_BAD_REQUEST)
+                result["acl_type"] = acl_norm
             # 必填校验
             for req in ("region", "bucket_name", "access_key_id", "secret_access_key"):
                 if not result.get(req):
@@ -153,9 +182,14 @@ class StorageService:
             "id": item.id,
             "name": item.name,
             "type": item.type,
+            "config_key": item.config_key,
             "region": item.region,
             "bucket_name": item.bucket_name,
             "path_prefix": item.path_prefix,
+            "endpoint_url": item.endpoint_url,
+            "custom_domain": item.custom_domain,
+            "use_https": item.use_https,
+            "acl_type": item.acl_type,
             "local_root_path": item.local_root_path,
             "created_at": format_datetime(item.create_time),
         }
@@ -169,6 +203,10 @@ class StorageService:
                     local_root_path=item.local_root_path,
                     access_key_id=item.access_key_id,
                     secret_access_key=item.secret_access_key,
+                    endpoint_url=item.endpoint_url,
+                    custom_domain=item.custom_domain,
+                    use_https=item.use_https,
+                    acl_type=item.acl_type,
                 )
                 # 简单探测
                 if item.type.upper() == "LOCAL":

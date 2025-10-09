@@ -186,14 +186,77 @@ CREATE TABLE IF NOT EXISTS login_logs (
 CREATE TABLE IF NOT EXISTS storage_configs (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) UNIQUE NOT NULL,
+    config_key VARCHAR(64) UNIQUE, -- 对外引用用的唯一 key（可选但建议提供）
     type VARCHAR(16) NOT NULL, -- 'S3' | 'LOCAL'
     region VARCHAR(64), -- S3 only
     bucket_name VARCHAR(128), -- S3 only
     path_prefix VARCHAR(255), -- S3 only
     access_key_id VARCHAR(128), -- S3 only
     secret_access_key VARCHAR(256), -- S3 only
+    endpoint_url VARCHAR(255), -- S3 only，自定义兼容端点（MinIO/厂商 S3）
+    custom_domain VARCHAR(255), -- S3 only，自定义访问域名/CDN 域名
+    use_https BOOLEAN NOT NULL DEFAULT TRUE, -- S3 only，直链拼接是否 https
+    acl_type VARCHAR(16) NOT NULL DEFAULT 'private', -- S3 only，'private' | 'public' | 'custom'
     local_root_path VARCHAR(512), -- LOCAL only
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT ck_storage_configs_acl_type CHECK (acl_type IN ('private','public','custom'))
+);
+
+-- 向后兼容：增量添加缺失列
+ALTER TABLE storage_configs ADD COLUMN IF NOT EXISTS config_key VARCHAR(64);
+ALTER TABLE storage_configs ADD COLUMN IF NOT EXISTS endpoint_url VARCHAR(255);
+ALTER TABLE storage_configs ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255);
+ALTER TABLE storage_configs ADD COLUMN IF NOT EXISTS use_https BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE storage_configs ADD COLUMN IF NOT EXISTS acl_type VARCHAR(16) NOT NULL DEFAULT 'private';
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ck_storage_configs_acl_type'
+    ) THEN
+        ALTER TABLE storage_configs ADD CONSTRAINT ck_storage_configs_acl_type CHECK (acl_type IN ('private','public','custom'));
+    END IF;
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- 文件记录：保存上传文件的元数据（原名、别名、用途）。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS file_records (
+    id SERIAL PRIMARY KEY,
+    storage_id INTEGER NOT NULL,
+    directory VARCHAR(1024) NOT NULL, -- 目录路径，以 '/' 开头，末尾不包含文件名
+    original_name VARCHAR(255) NOT NULL, -- 上传时的原始文件名
+    alias_name VARCHAR(255) NOT NULL, -- 实际存储使用的文件名（含自动去重的别名）
+    purpose VARCHAR(64) NOT NULL DEFAULT 'general', -- 上传用途
+    size_bytes BIGINT NOT NULL DEFAULT 0,
+    mime_type VARCHAR(255),
     create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+CREATE INDEX IF NOT EXISTS idx_file_records_storage_dir ON file_records(storage_id, directory);
+CREATE INDEX IF NOT EXISTS idx_file_records_purpose ON file_records(purpose);
+
+-- ---------------------------------------------------------------------------
+-- 本地目录变更记录：用于从本地存储根目录下的“记录文件”导入到数据库
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS directory_change_records (
+    id SERIAL PRIMARY KEY,
+    storage_id INTEGER NOT NULL,
+    action VARCHAR(32) NOT NULL, -- create | rename | move | delete | copy
+    path_old VARCHAR(1024),
+    path_new VARCHAR(1024),
+    operate_time TIMESTAMPTZ NOT NULL,
+    extra JSONB,
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+-- 保证幂等导入：同一条记录不会重复插入
+CREATE UNIQUE INDEX IF NOT EXISTS uq_directory_change_records_dedup
+ON directory_change_records(storage_id, action, COALESCE(path_old, ''), COALESCE(path_new, ''), operate_time)
+WHERE is_deleted = FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_directory_change_records_storage ON directory_change_records(storage_id);

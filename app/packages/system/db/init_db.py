@@ -25,6 +25,8 @@ from app.packages.system.models.role import Role
 from app.packages.system.models.user import User
 from app.packages.system.crud.storage_config import storage_config_crud
 from app.packages.system.models.storage import StorageConfig
+from app.packages.system.models.file_record import FileRecord  # noqa: F401 - ensure table creation in tests
+from app.packages.system.models.directory_change_record import DirectoryChangeRecord  # noqa: F401 - ensure table creation in tests
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +144,11 @@ def _seed_default_storage_if_needed(db: Session) -> None:
         db.add(cfg)
         db.flush()
     except Exception:
+        # 回滚本次插入失败，避免后续操作出现 PendingRollbackError
+        try:
+            db.rollback()
+        except Exception:
+            pass
         logger.warning("Failed to seed default local storage from LOCAL_FILE_ROOT", exc_info=True)
 
 

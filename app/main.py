@@ -35,6 +35,17 @@ app.add_middleware(
 async def startup_event() -> None:
     """初始化数据库状态，确认服务可用后输出成功日志。"""
     init_db()
+    # 从本地存储的“目录操作记录文件”导入到数据库（若存在）
+    try:
+        from app.packages.system.db import session as db_session
+        from app.packages.system.services.dir_log_ingestor import ingest_local_dir_logs
+
+        with db_session.SessionLocal() as s:
+            imported = ingest_local_dir_logs(s)
+            if imported:
+                logger.info("Imported %s directory change records from local storage logs", imported)
+    except Exception:
+        logger.warning("Failed to import directory change records on startup", exc_info=True)
     logger.info("SUCCESS - Application running at http://127.0.0.1:%s", settings.app_port)
 
 

@@ -94,7 +94,7 @@ WHERE NOT EXISTS (
       AND existing.is_deleted = FALSE
 );
 
--- 访问控制模块 API 监听规则
+-- 访问控制模块 API 监听规则（使用路径模板）
 INSERT INTO operation_log_monitor_rules (
     name,
     request_uri,
@@ -115,10 +115,10 @@ SELECT
 FROM (VALUES
     ('访问控制-树查询', '/api/v1/access-controls', 'GET', 'exact', TRUE, '查询访问控制树', 'query'),
     ('访问控制-路由获取', '/api/v1/access-controls/routers', 'GET', 'exact', TRUE, '获取动态路由配置', 'query'),
-    ('访问控制-详情查询', '/api/v1/access-controls/', 'GET', 'prefix', TRUE, '获取访问控制项详情', 'query'),
+    ('访问控制-详情查询', '/api/v1/access-controls/{item_id}', 'GET', 'exact', TRUE, '获取访问控制项详情', 'query'),
     ('访问控制-新增', '/api/v1/access-controls', 'POST', 'exact', TRUE, '新增访问控制项', 'create'),
-    ('访问控制-更新', '/api/v1/access-controls/', 'PUT', 'prefix', TRUE, '更新访问控制项', 'update'),
-    ('访问控制-删除', '/api/v1/access-controls/', 'DELETE', 'prefix', TRUE, '删除访问控制项', 'delete')
+    ('访问控制-更新', '/api/v1/access-controls/{item_id}', 'PUT', 'exact', TRUE, '更新访问控制项', 'update'),
+    ('访问控制-删除', '/api/v1/access-controls/{item_id}', 'DELETE', 'exact', TRUE, '删除访问控制项', 'delete')
 ) AS v(name, request_uri, http_method, match_mode, is_enabled, description, operation_type_code)
 WHERE NOT EXISTS (
     SELECT 1
@@ -129,7 +129,7 @@ WHERE NOT EXISTS (
       AND existing.is_deleted = FALSE
 );
 
--- 角色管理模块 API 监听规则
+-- 角色管理模块 API 监听规则（使用路径模板）
 INSERT INTO operation_log_monitor_rules (
     name,
     request_uri,
@@ -149,11 +149,11 @@ SELECT
     v.operation_type_code
 FROM (VALUES
     ('角色-列表查询', '/api/v1/roles', 'GET', 'exact', TRUE, '分页查询角色列表', 'query'),
-    ('角色-详情查询', '/api/v1/roles/', 'GET', 'prefix', TRUE, '获取角色详情', 'query'),
+    ('角色-详情查询', '/api/v1/roles/{role_id}', 'GET', 'exact', TRUE, '获取角色详情', 'query'),
     ('角色-新增', '/api/v1/roles', 'POST', 'exact', TRUE, '新增角色', 'create'),
-    ('角色-更新', '/api/v1/roles/', 'PUT', 'prefix', TRUE, '更新角色信息', 'update'),
-    ('角色-状态切换', '/api/v1/roles/', 'PATCH', 'prefix', TRUE, '更新角色状态', 'update'),
-    ('角色-删除', '/api/v1/roles/', 'DELETE', 'prefix', TRUE, '删除角色', 'delete'),
+    ('角色-更新', '/api/v1/roles/{role_id}', 'PUT', 'exact', TRUE, '更新角色信息', 'update'),
+    ('角色-状态切换', '/api/v1/roles/{role_id}/status', 'PATCH', 'exact', TRUE, '更新角色状态', 'update'),
+    ('角色-删除', '/api/v1/roles/{role_id}', 'DELETE', 'exact', TRUE, '删除角色', 'delete'),
     ('角色-导出', '/api/v1/roles/export', 'GET', 'exact', TRUE, '导出角色列表', 'export')
 ) AS v(name, request_uri, http_method, match_mode, is_enabled, description, operation_type_code)
 WHERE NOT EXISTS (
@@ -165,7 +165,7 @@ WHERE NOT EXISTS (
       AND existing.is_deleted = FALSE
 );
 
--- 用户管理模块 API 监听规则
+-- 用户管理模块 API 监听规则（使用路径模板）
 INSERT INTO operation_log_monitor_rules (
     name,
     request_uri,
@@ -187,8 +187,9 @@ FROM (VALUES
     ('用户-当前信息', '/api/v1/users/me', 'GET', 'exact', TRUE, '获取当前用户信息', 'query'),
     ('用户-列表查询', '/api/v1/users', 'GET', 'exact', TRUE, '分页查询用户列表', 'query'),
     ('用户-新增', '/api/v1/users', 'POST', 'exact', TRUE, '新增用户', 'create'),
-    ('用户-更新', '/api/v1/users/', 'PUT', 'prefix', TRUE, '更新用户信息或重置密码', 'update'),
-    ('用户-删除', '/api/v1/users/', 'DELETE', 'prefix', TRUE, '删除用户', 'delete'),
+    ('用户-更新', '/api/v1/users/{user_id}', 'PUT', 'exact', TRUE, '更新用户信息', 'update'),
+    ('用户-删除', '/api/v1/users/{user_id}', 'DELETE', 'exact', TRUE, '删除用户', 'delete'),
+    ('用户-重置密码', '/api/v1/users/{user_id}/reset-password', 'PUT', 'exact', TRUE, '重置用户密码', 'update'),
     ('用户-导出', '/api/v1/users/export', 'GET', 'exact', TRUE, '导出用户列表', 'export'),
     ('用户-导入', '/api/v1/users/import', 'POST', 'exact', TRUE, '导入用户数据', 'import'),
     ('用户-模板下载', '/api/v1/users/template', 'GET', 'exact', TRUE, '下载用户导入模板', 'export')
@@ -202,7 +203,7 @@ WHERE NOT EXISTS (
       AND existing.is_deleted = FALSE
 );
 
--- 字典管理模块 API 监听规则
+-- 字典管理模块 API 监听规则（使用路径模板）
 INSERT INTO operation_log_monitor_rules (
     name,
     request_uri,
@@ -223,12 +224,12 @@ SELECT
 FROM (VALUES
     ('字典类型-列表查询', '/api/v1/dictionary_types', 'GET', 'exact', TRUE, '获取字典类型列表', 'query'),
     ('字典类型-新增', '/api/v1/dictionary_types', 'POST', 'exact', TRUE, '新增字典类型', 'create'),
-    ('字典类型-更新', '/api/v1/dictionary_types/', 'PUT', 'prefix', TRUE, '更新字典类型', 'update'),
-    ('字典类型-删除', '/api/v1/dictionary_types/', 'DELETE', 'prefix', TRUE, '删除字典类型', 'delete'),
-    ('字典项-列表查询', '/api/v1/dictionaries/', 'GET', 'prefix', TRUE, '分页查询字典项', 'query'),
+    ('字典类型-更新', '/api/v1/dictionary_types/{type_code}', 'PUT', 'exact', TRUE, '更新字典类型', 'update'),
+    ('字典类型-删除', '/api/v1/dictionary_types/{type_code}', 'DELETE', 'exact', TRUE, '删除字典类型', 'delete'),
+    ('字典项-列表查询', '/api/v1/dictionaries/{type_code}', 'GET', 'exact', TRUE, '分页查询字典项', 'query'),
     ('字典项-新增', '/api/v1/dictionaries', 'POST', 'exact', TRUE, '新增字典项', 'create'),
-    ('字典项-更新', '/api/v1/dictionaries/', 'PUT', 'prefix', TRUE, '更新字典项', 'update'),
-    ('字典项-删除', '/api/v1/dictionaries/', 'DELETE', 'prefix', TRUE, '删除字典项', 'delete')
+    ('字典项-更新', '/api/v1/dictionaries/{id}', 'PUT', 'exact', TRUE, '更新字典项', 'update'),
+    ('字典项-删除', '/api/v1/dictionaries/{id}', 'DELETE', 'exact', TRUE, '删除字典项', 'delete')
 ) AS v(name, request_uri, http_method, match_mode, is_enabled, description, operation_type_code)
 WHERE NOT EXISTS (
     SELECT 1
@@ -239,7 +240,7 @@ WHERE NOT EXISTS (
       AND existing.is_deleted = FALSE
 );
 
--- 日志管理模块 API 监听规则
+-- 日志管理模块 API 监听规则（对自身接口默认禁用；使用路径模板）
 INSERT INTO operation_log_monitor_rules (
     name,
     request_uri,
@@ -259,18 +260,73 @@ SELECT
     v.operation_type_code
 FROM (VALUES
     ('日志-操作日志列表', '/api/v1/logs/operations', 'GET', 'exact', FALSE, '查询操作日志列表', 'query'),
-    ('日志-操作日志详情', '/api/v1/logs/operations/', 'GET', 'prefix', FALSE, '获取操作日志详情', 'query'),
-    ('日志-操作日志删除', '/api/v1/logs/operations/', 'DELETE', 'prefix', FALSE, '删除单条操作日志', 'delete'),
+    ('日志-操作日志详情', '/api/v1/logs/operations/{log_number}', 'GET', 'exact', FALSE, '获取操作日志详情', 'query'),
+    ('日志-操作日志删除', '/api/v1/logs/operations/{log_number}', 'DELETE', 'exact', FALSE, '删除单条操作日志', 'delete'),
     ('日志-操作日志清除', '/api/v1/logs/operations', 'DELETE', 'exact', FALSE, '清除全部操作日志', 'clean'),
     ('日志-操作日志导出', '/api/v1/logs/operations/export', 'GET', 'exact', FALSE, '导出操作日志', 'export'),
     ('日志-登录日志列表', '/api/v1/logs/logins', 'GET', 'exact', TRUE, '查询登录日志列表', 'query'),
-    ('日志-登录日志删除', '/api/v1/logs/logins/', 'DELETE', 'prefix', TRUE, '删除登录日志', 'delete'),
+    ('日志-登录日志删除', '/api/v1/logs/logins/{visit_number}', 'DELETE', 'exact', TRUE, '删除登录日志', 'delete'),
     ('日志-登录日志清除', '/api/v1/logs/logins', 'DELETE', 'exact', TRUE, '清除全部登录日志', 'clean'),
     ('日志-监听规则列表', '/api/v1/logs/monitor-rules', 'GET', 'exact', TRUE, '查询监听规则列表', 'query'),
     ('日志-监听规则新增', '/api/v1/logs/monitor-rules', 'POST', 'exact', TRUE, '新增监听规则', 'create'),
-    ('日志-监听规则详情', '/api/v1/logs/monitor-rules/', 'GET', 'prefix', TRUE, '获取监听规则详情', 'query'),
-    ('日志-监听规则更新', '/api/v1/logs/monitor-rules/', 'PUT', 'prefix', TRUE, '更新监听规则', 'update'),
-    ('日志-监听规则删除', '/api/v1/logs/monitor-rules/', 'DELETE', 'prefix', TRUE, '删除监听规则', 'delete')
+    ('日志-监听规则详情', '/api/v1/logs/monitor-rules/{rule_id}', 'GET', 'exact', TRUE, '获取监听规则详情', 'query'),
+    ('日志-监听规则更新', '/api/v1/logs/monitor-rules/{rule_id}', 'PUT', 'exact', TRUE, '更新监听规则', 'update'),
+    ('日志-监听规则删除', '/api/v1/logs/monitor-rules/{rule_id}', 'DELETE', 'exact', TRUE, '删除监听规则', 'delete')
+) AS v(name, request_uri, http_method, match_mode, is_enabled, description, operation_type_code)
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM operation_log_monitor_rules existing
+    WHERE existing.request_uri = v.request_uri
+      AND existing.http_method = v.http_method
+      AND existing.match_mode = v.match_mode
+      AND existing.is_deleted = FALSE
+);
+
+-- ---------------------------------------------------------------------------
+-- 文件管理模块 API 监听规则（与 docs/system/api/file_manager.md 对齐）
+-- ---------------------------------------------------------------------------
+INSERT INTO operation_log_monitor_rules (
+    name,
+    request_uri,
+    http_method,
+    match_mode,
+    is_enabled,
+    description,
+    operation_type_code
+)
+SELECT
+    v.name,
+    v.request_uri,
+    v.http_method,
+    v.match_mode,
+    v.is_enabled,
+    v.description,
+    v.operation_type_code
+FROM (VALUES
+    -- 存储源管理
+    ('存储-列表', '/api/v1/storage-configs', 'GET', 'exact', TRUE, '查询存储源列表', 'query'),
+    ('存储-详情', '/api/v1/storage-configs/{config_id}', 'GET', 'exact', TRUE, '获取存储源详情', 'query'),
+    ('存储-新增', '/api/v1/storage-configs', 'POST', 'exact', TRUE, '新增存储源', 'create'),
+    ('存储-更新', '/api/v1/storage-configs/{config_id}', 'PUT', 'exact', TRUE, '更新存储源', 'update'),
+    ('存储-删除', '/api/v1/storage-configs/{config_id}', 'DELETE', 'exact', TRUE, '删除存储源配置', 'delete'),
+    ('存储-连通性测试', '/api/v1/storage-configs/test', 'POST', 'exact', TRUE, '测试存储源连通性', 'query'),
+
+    -- 文件与目录
+    ('文件-列表', '/api/v1/files', 'GET', 'exact', TRUE, '列出目录内容', 'query'),
+    ('文件-上传', '/api/v1/files', 'POST', 'exact', TRUE, '上传文件', 'create'),
+    ('文件-下载', '/api/v1/files/download', 'GET', 'exact', TRUE, '下载文件', 'query'),
+    ('文件-预览', '/api/v1/files/preview', 'GET', 'exact', TRUE, '预览文件', 'query'),
+    ('目录-创建', '/api/v1/folders', 'POST', 'exact', TRUE, '创建文件夹', 'create'),
+    ('文件-重命名', '/api/v1/files', 'PATCH', 'exact', TRUE, '重命名文件或文件夹', 'update'),
+    ('文件-移动', '/api/v1/files/move', 'POST', 'exact', TRUE, '移动文件或文件夹', 'update'),
+    ('文件-复制', '/api/v1/files/copy', 'POST', 'exact', TRUE, '复制文件或文件夹', 'create'),
+    ('文件-删除', '/api/v1/files', 'DELETE', 'exact', TRUE, '删除文件或文件夹', 'delete'),
+
+    -- 剪贴板
+    ('剪贴板-设置', '/api/v1/files/clipboard', 'POST', 'exact', TRUE, '设置剪贴板', 'other'),
+    ('剪贴板-获取', '/api/v1/files/clipboard', 'GET', 'exact', TRUE, '获取剪贴板', 'query'),
+    ('剪贴板-清空', '/api/v1/files/clipboard', 'DELETE', 'exact', TRUE, '清空剪贴板', 'other'),
+    ('剪贴板-粘贴', '/api/v1/files/paste', 'POST', 'exact', TRUE, '在目标目录执行粘贴', 'update')
 ) AS v(name, request_uri, http_method, match_mode, is_enabled, description, operation_type_code)
 WHERE NOT EXISTS (
     SELECT 1

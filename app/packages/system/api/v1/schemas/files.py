@@ -34,3 +34,19 @@ class DeleteBody(BaseModel):
 
 FilesListResponse = ResponseEnvelope[dict]
 FilesMutationResponse = ResponseEnvelope[Any]
+
+
+# ------------- 剪贴板 / 粘贴 -------------
+class ClipboardSetBody(BaseModel):
+    action: str = Field(..., pattern=r"^(copy|cut)$")  # copy=复制, cut=剪切(移动)
+    paths: list[str] = Field(default_factory=list)
+
+
+class ClipboardInfo(BaseModel):
+    action: str
+    storage_id: int
+    paths: list[str]
+    ts: str
+
+
+ClipboardGetResponse = ResponseEnvelope[Optional[ClipboardInfo]]

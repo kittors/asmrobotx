@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from sqlalchemy import String, UniqueConstraint
+from sqlalchemy import Boolean, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin
@@ -25,6 +25,7 @@ class StorageConfig(TimestampMixin, SoftDeleteMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), index=True)
+    config_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     type: Mapped[str] = mapped_column(String(16))  # "S3" or "LOCAL"
 
     # S3 only
@@ -33,7 +34,10 @@ class StorageConfig(TimestampMixin, SoftDeleteMixin, Base):
     path_prefix: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     access_key_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     secret_access_key: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    endpoint_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    custom_domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    use_https: Mapped[bool] = mapped_column(Boolean, default=True)
+    acl_type: Mapped[str] = mapped_column(String(16), default="private")
 
     # LOCAL only
     local_root_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-

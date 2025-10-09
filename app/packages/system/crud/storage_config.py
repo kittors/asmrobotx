@@ -18,6 +18,12 @@ class CRUDStorageConfig(CRUDBase[StorageConfig]):
             query = query.filter(self.model.is_deleted.is_(False))
         return query.first()
 
+    def get_by_key(self, db: Session, config_key: str, *, include_deleted: bool = False) -> Optional[StorageConfig]:
+        query = db.query(self.model).filter(self.model.config_key == config_key)
+        if not include_deleted and hasattr(self.model, "is_deleted"):
+            query = query.filter(self.model.is_deleted.is_(False))
+        return query.first()
+
     def list_all(self, db: Session) -> List[StorageConfig]:
         query = db.query(self.model)
         if hasattr(self.model, "is_deleted"):
@@ -34,4 +40,3 @@ class CRUDStorageConfig(CRUDBase[StorageConfig]):
 
 
 storage_config_crud = CRUDStorageConfig(StorageConfig)
-
