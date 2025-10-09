@@ -443,16 +443,29 @@ class S3Backend(StorageBackend):
         return ext in allowed
 
     def list(self, *, path: str, file_type: Optional[str] = None, search: Optional[str] = None) -> dict:
+        """列举对象。
+
+        为避免在未设置 path_prefix 时意外列举整个桶导致压力过大，这里做了安全限制：
+        - 仅抓取第一页结果；
+        - 设置 PageSize 以限制单页条目数（CommonPrefixes+Contents 合计）。
+        """
         prefix = self._join_key(path)
         if prefix and not prefix.endswith("/"):
             prefix = prefix + "/"
         paginator = self._client.get_paginator("list_objects_v2")
-        page_iter = paginator.paginate(Bucket=self.bucket, Prefix=prefix, Delimiter="/")
+        # 安全页大小；可根据需要调整
+        page_iter = paginator.paginate(
+            Bucket=self.bucket,
+            Prefix=prefix,
+            Delimiter="/",
+            PaginationConfig={"PageSize": 200},
+        )
 
         items: list[dict] = []
         search_lower = (search or "").strip().lower()
 
-        for page in page_iter:
+        # 仅处理第一页，避免大桶全量遍历
+        for i, page in enumerate(page_iter):
             for common in page.get("CommonPrefixes", []):  # folders
                 key = common.get("Prefix", "")
                 name = key[len(prefix) :].rstrip("/") if prefix else key.rstrip("/")
@@ -492,6 +505,7 @@ class S3Backend(StorageBackend):
                         "last_modified": content.get("LastModified").astimezone(timezone.utc).isoformat() if content.get("LastModified") else None,
                     }
                 )
+            break  # 只读第一页
 
         current_path = path if path else "/"
         if not current_path.endswith("/"):

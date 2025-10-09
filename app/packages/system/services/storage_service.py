@@ -32,11 +32,13 @@ class StorageService:
 
     def create_config(self, db: Session, payload: dict) -> Dict[str, Any]:
         normalized = self._normalize_payload(payload, partial=False)
+        # 名称唯一性（与数据库唯一约束保持一致：包含已软删除的数据）
         existing = storage_config_crud.get_by_name(db, normalized["name"], include_deleted=True)
         if existing is not None:
             raise AppException("存储源名称已存在", HTTP_STATUS_CONFLICT)
+        # config_key 唯一性（忽略已软删除的数据）
         if normalized.get("config_key"):
-            if storage_config_crud.get_by_key(db, normalized["config_key"], include_deleted=True):
+            if storage_config_crud.get_by_key(db, normalized["config_key"], include_deleted=False):
                 raise AppException("配置 key 已存在", HTTP_STATUS_CONFLICT)
 
         created = storage_config_crud.create(db, normalized)
@@ -52,10 +54,12 @@ class StorageService:
         merged = self._normalize_payload(payload, partial=True, existing=config)
         # 名称唯一性校验
         if "name" in merged and merged["name"] != config.name:
+            # 名称唯一性（与数据库唯一约束保持一致：包含已软删除的数据）
             if storage_config_crud.get_by_name(db, merged["name"], include_deleted=True):
                 raise AppException("存储源名称已存在", HTTP_STATUS_CONFLICT)
         if "config_key" in merged and merged["config_key"] != (config.config_key or None):
-            if merged["config_key"] and storage_config_crud.get_by_key(db, merged["config_key"], include_deleted=True):
+            # config_key 唯一性（忽略已软删除的数据）
+            if merged["config_key"] and storage_config_crud.get_by_key(db, merged["config_key"], include_deleted=False):
                 raise AppException("配置 key 已存在", HTTP_STATUS_CONFLICT)
 
         for k, v in merged.items():
@@ -83,11 +87,18 @@ class StorageService:
         normalized = self._normalize_payload(payload, partial=False)
         # 仅做连通性测试，不保存
         try:
+            # 对 S3 默认生成一个安全的前缀，避免误列举整个桶
+            path_prefix = normalized.get("path_prefix")
+            if (normalized["type"].upper() == "S3") and not path_prefix:
+                import re
+                base = normalized.get("config_key") or normalized["name"]
+                slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", base).strip("-") or "storage"
+                path_prefix = f"asmrobotx/{slug}"
             backend = build_backend(
                 type=normalized["type"],
                 region=normalized.get("region"),
                 bucket_name=normalized.get("bucket_name"),
-                path_prefix=normalized.get("path_prefix"),
+                path_prefix=path_prefix or normalized.get("path_prefix"),
                 local_root_path=normalized.get("local_root_path"),
                 access_key_id=normalized.get("access_key_id"),
                 secret_access_key=normalized.get("secret_access_key"),
@@ -146,6 +157,13 @@ class StorageService:
             for key in ("region", "bucket_name", "access_key_id", "secret_access_key", "path_prefix", "endpoint_url", "custom_domain"):
                 if not partial or key in payload:
                     result[key] = _opt(payload.get(key))
+            # 若为创建场景且未提供 path_prefix，则为安全起见自动生成
+            if not partial:
+                if not result.get("path_prefix"):
+                    import re
+                    base = (result.get("config_key") or result.get("name") or "storage")
+                    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", base).strip("-") or "storage"
+                    result["path_prefix"] = f"asmrobotx/{slug}"
             # use_https
             if not partial or "use_https" in payload:
                 use_https = payload.get("use_https") if payload.get("use_https") is not None else (existing.use_https if existing else True)
