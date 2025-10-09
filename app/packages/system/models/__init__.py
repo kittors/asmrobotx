@@ -7,6 +7,7 @@ from app.packages.system.models.organization import Organization
 from app.packages.system.models.permission import Permission
 from app.packages.system.models.role import Role
 from app.packages.system.models.user import User
+from app.packages.system.models.storage import StorageConfig
 
 __all__ = [
     "AccessControlItem",
@@ -19,4 +20,5 @@ __all__ = [
     "Permission",
     "Role",
     "User",
+    "StorageConfig",
 ]

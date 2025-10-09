@@ -179,3 +179,21 @@ CREATE TABLE IF NOT EXISTS login_logs (
 );
 
 -- 数据初始化相关的 INSERT 语句已迁移至 scripts/db/init/v1/data/001_seed_data.sql。
+
+-- ---------------------------------------------------------------------------
+-- 文件管理：存储源配置表
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS storage_configs (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    type VARCHAR(16) NOT NULL, -- 'S3' | 'LOCAL'
+    region VARCHAR(64), -- S3 only
+    bucket_name VARCHAR(128), -- S3 only
+    path_prefix VARCHAR(255), -- S3 only
+    access_key_id VARCHAR(128), -- S3 only
+    secret_access_key VARCHAR(256), -- S3 only
+    local_root_path VARCHAR(512), -- LOCAL only
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE
+);
