@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Iterable, Tuple
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -18,50 +18,21 @@ from app.packages.system.core.enums import RoleEnum, RoleStatusEnum, UserStatusE
 from app.packages.system.core.security import get_password_hash
 from app.packages.system.db import session as db_session
 from app.packages.system.models.base import Base
-from app.packages.system.models.dictionary import DictionaryEntry, DictionaryType
+from app.packages.system.models.dictionary import DictionaryType
 from app.packages.system.models.organization import Organization
 from app.packages.system.models.role import Role
 from app.packages.system.models.user import User
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DICTIONARY_TYPES: Dict[str, Tuple[str, str]] = {
-    "display_status": ("显示状态", "用于表示菜单或组件在前端的显示控制"),
-    "enabled_status": ("启用状态", "用于标记资源当前是否可用"),
-    "icon_list": ("图标列表", "为前端图标选择器提供可用图标"),
-    "operation_log_type": ("操作日志类型", "区分操作日志的业务动作"),
-}
+"""
+移除了 Python 侧的字典类型/字典项默认数据，改为依赖 SQL 种子脚本：
+scripts/db/init/v1/data/001_seed_data.sql。
 
-DEFAULT_DICTIONARY_ITEMS: Dict[str, Iterable[Tuple[str, str, str]]] = {
-    "display_status": (
-        ("显示", "show", "用于表示菜单或组件应在前端展示"),
-        ("隐藏", "hidden", "用于表示菜单或组件应在前端隐藏"),
-    ),
-    "enabled_status": (
-        ("启用", "enabled", "标记条目当前处于启用状态"),
-        ("停用", "disabled", "标记条目当前处于停用状态"),
-    ),
-    "icon_list": (
-        ("工具箱", "tool-case", "工具图标"),
-        ("设置", "settings", "设置图标"),
-        ("搜索", "search", "通用搜索图标"),
-        ("外链", "link", "外链/跳转图标"),
-        ("地图定位", "map-pinned", "地理定位图标"),
-        ("菜单", "menu", "菜单/列表图标"),
-    ),
-    "operation_log_type": (
-        ("新增", "create", "新增数据"),
-        ("修改", "update", "修改数据"),
-        ("删除", "delete", "删除数据"),
-        ("查询", "query", "查询数据"),
-        ("授权", "grant", "权限授权"),
-        ("导出", "export", "数据导出"),
-        ("导入", "import", "数据导入"),
-        ("强退", "force_logout", "强制下线"),
-        ("清除数据", "clean", "批量清除数据"),
-        ("其他", "other", "其它操作"),
-    ),
-}
+为兼容测试环境（使用 SQLite，且不会自动执行上述 SQL），在初始化时会尝试
+从该 SQL 文件中提取与字典相关的 INSERT 语句并执行一次（若数据库中已存在
+典型的字典类型则跳过），确保幂等。
+"""
 
 
 def init_db() -> None:
@@ -71,6 +42,7 @@ def init_db() -> None:
     session = db_session.SessionLocal()
     try:
         _seed_core_entities(session)
+        _seed_dictionaries_from_sql_if_needed(session)
         session.commit()
     except Exception:  # pragma: no cover - initialization failures should not crash gracefully
         session.rollback()
@@ -144,78 +116,129 @@ def _seed_core_entities(db: Session) -> None:
         admin_user.is_active = True
         db.add(admin_user)
 
-    for order, (type_code, (display_name, description)) in enumerate(DEFAULT_DICTIONARY_TYPES.items(), start=1):
-        dictionary_type = (
-            db.query(DictionaryType)
-            .filter(
-                DictionaryType.type_code == type_code,
-                DictionaryType.is_deleted.is_(False),
-            )
-            .first()
-        )
-        if dictionary_type is None:
-            dictionary_type = DictionaryType(
-                type_code=type_code,
-                display_name=display_name,
-                description=description,
-                sort_order=order,
-            )
-            db.add(dictionary_type)
-            db.flush()
-        else:
-            updated = False
-            if not dictionary_type.display_name:
-                dictionary_type.display_name = display_name
-                updated = True
-            if dictionary_type.description is None and description is not None:
-                dictionary_type.description = description
-                updated = True
-            if dictionary_type.sort_order is None:
-                dictionary_type.sort_order = order
-                updated = True
-            elif dictionary_type.sort_order != order:
-                dictionary_type.sort_order = dictionary_type.sort_order or order
-            if updated:
-                db.add(dictionary_type)
+    # 字典相关的默认数据从 SQL 脚本注入，不在此处维护。
 
-    for type_code, entries in DEFAULT_DICTIONARY_ITEMS.items():
-        dictionary_type = (
-            db.query(DictionaryType)
-            .filter(
-                DictionaryType.type_code == type_code,
-                DictionaryType.is_deleted.is_(False),
-            )
-            .first()
-        )
-        if dictionary_type is None:
-            display_name, description = DEFAULT_DICTIONARY_TYPES.get(type_code, (type_code, None))
-            dictionary_type = DictionaryType(
-                type_code=type_code,
-                display_name=display_name,
-                description=description,
-                sort_order=len(DEFAULT_DICTIONARY_TYPES) + 1,
-            )
-            db.add(dictionary_type)
-            db.flush()
 
-        for index, (label, value, description) in enumerate(entries, start=1):
-            exists = (
-                db.query(DictionaryEntry)
-                .filter(
-                    DictionaryEntry.type_code == type_code,
-                    DictionaryEntry.value == value,
-                    DictionaryEntry.is_deleted.is_(False),
-                )
+def _seed_dictionaries_from_sql_if_needed(db: Session) -> None:
+    """在测试或开发环境中，必要时从 SQL 种子脚本注入字典数据。
+
+    - 若已存在典型的字典类型（如 display_status），则认为已完成初始化并跳过；
+    - 否则，尝试从 scripts/db/init/v1/data/001_seed_data.sql 中提取针对
+      `dictionary_types` 与 `dictionary_entries` 的 INSERT 语句并执行。
+
+    该逻辑为幂等实现，多次执行不会产生重复数据。
+    """
+    from pathlib import Path
+    from sqlalchemy import text
+
+    # 若已存在基础字典类型则跳过
+    exists = (
+        db.query(DictionaryType)
+        .filter(DictionaryType.type_code == "display_status", DictionaryType.is_deleted.is_(False))
+        .first()
+    )
+    if exists is not None:
+        return
+
+    # 解析 SQL 文件，仅执行与字典相关的 INSERT 语句
+    try:
+        repo_root = Path(__file__).resolve().parents[4]  # <repo>/app/packages/system/db -> parents[4] == <repo>
+        sql_path = repo_root / "scripts" / "db" / "init" / "v1" / "data" / "001_seed_data.sql"
+        sql_text = sql_path.read_text(encoding="utf-8")
+    except Exception:  # pragma: no cover - IO 异常仅记录日志
+        logger.warning("Seed SQL file not found or unreadable: %s", "scripts/db/init/v1/data/001_seed_data.sql")
+        return
+
+    # 解析字典类型
+    import re
+
+    def _parse_tuple_values(block: str) -> list[tuple[str, str, str | None, int]]:
+        # 提取形如 ('a','b','c',1) 的元组序列
+        pattern = re.compile(
+            r"\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'(.*?)'\s*,\s*([0-9]+)\s*\)",
+            re.DOTALL,
+        )
+        results: list[tuple[str, str, str | None, int]] = []
+        for m in pattern.finditer(block):
+            type_code = m.group(1)
+            display_name = m.group(2)
+            description = m.group(3)
+            sort_order = int(m.group(4))
+            results.append((type_code, display_name, description, sort_order))
+        return results
+
+    def _extract_block(src: str, table: str) -> list[str]:
+        # 找到 INSERT INTO <table> ... VALUES ...; 可能存在多段（特别是 entries）
+        blocks: list[str] = []
+        insert_pattern = re.compile(
+            rf"INSERT\s+INTO\s+{table}[^;]*?VALUES(.*?);",
+            re.IGNORECASE | re.DOTALL,
+        )
+        for m in insert_pattern.finditer(src):
+            blocks.append(m.group(1))
+        return blocks
+
+    # 1) 字典类型
+    type_blocks = _extract_block(sql_text, "dictionary_types")
+    for block in type_blocks:
+        for type_code, display_name, description, sort_order in _parse_tuple_values(block):
+            existing = (
+                db.query(DictionaryType)
+                .filter(DictionaryType.type_code == type_code, DictionaryType.is_deleted.is_(False))
                 .first()
             )
-            if exists:
-                continue
-            db.add(
-                DictionaryEntry(
-                    type_code=type_code,
-                    label=label,
-                    value=value,
-                    description=description,
-                    sort_order=index,
+            if existing is None:
+                db.add(
+                    DictionaryType(
+                        type_code=type_code,
+                        display_name=display_name,
+                        description=description,
+                        sort_order=sort_order,
+                    )
                 )
+    # 确保上面的新增被持久化，后续查询可见
+    db.flush()
+
+    # 2) 字典条目：为避免引入模型依赖，这里用原生 SQL 以最小代价 upsert
+    #    仅插入不存在的 (type_code, value) 组合
+    entry_blocks = _extract_block(sql_text, "dictionary_entries")
+    entry_pattern = re.compile(
+        r"\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'(.*?)'\s*,\s*([0-9]+)\s*\)",
+        re.DOTALL,
+    )
+    for block in entry_blocks:
+        for m in entry_pattern.finditer(block):
+            type_code, label, value, description, sort_order = m.groups()
+            sort_order_int = int(sort_order)
+            # 仅当类型已存在时才插入条目，维持外键一致性
+            type_exists = (
+                db.query(DictionaryType)
+                .filter(DictionaryType.type_code == type_code, DictionaryType.is_deleted.is_(False))
+                .first()
+                is not None
+            )
+            if not type_exists:
+                continue
+            # 使用方言无关的插入前查询，保证幂等
+            exists_sql = text(
+                "SELECT id FROM dictionary_entries WHERE type_code = :type_code AND value = :value AND is_deleted = 0"
+            )
+            row = db.execute(exists_sql, {"type_code": type_code, "value": value}).first()
+            if row:
+                continue
+            insert_sql = text(
+                """
+                INSERT INTO dictionary_entries (type_code, label, value, description, sort_order, create_time, update_time, is_deleted)
+                VALUES (:type_code, :label, :value, :description, :sort_order, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                """
+            )
+            db.execute(
+                insert_sql,
+                {
+                    "type_code": type_code,
+                    "label": label,
+                    "value": value,
+                    "description": description,
+                    "sort_order": sort_order_int,
+                },
             )

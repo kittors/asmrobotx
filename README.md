@@ -28,7 +28,13 @@
 │           ├── models/        # SQLAlchemy 模型
 │           └── services/      # 业务服务逻辑
 ├── scripts/
-│   └── db/init/               # PostgreSQL 初始化 SQL
+│   └── db/init/               # PostgreSQL 初始化 SQL（按版本分层）
+│       ├── 01_v1.sql          # 聚合执行入口（按顺序包含 v1/schema 与 v1/data）
+│       └── v1/
+│           ├── schema/        # 表结构、索引、扩展等
+│           │   └── 001_schema.sql
+│           └── data/          # 基础/演示数据、菜单、字典项等
+│               └── 001_seed_data.sql
 ├── tests/                     # Pytest 自动化用例（按业务包划分，如 tests/system）
 ├── docs/
 │   └── system/api/            # 系统包接口文档（Markdown）
@@ -87,8 +93,8 @@ docker compose --env-file .env.production up --build
 - `REDIS_HOST_PORT`：宿主机暴露的 Redis 端口（默认 6380）
 
 容器说明：
-- `app`：FastAPI 服务，启动时自动执行 `app/packages/system/db/init_db.py` 进行数据初始化
-- `db`：PostgreSQL，执行 `scripts/db/init/01_init.sql` 注入基础数据
+- `app`：FastAPI 服务，启动时会执行 `app/packages/system/db/init_db.py` 以保证核心数据存在（幂等）
+- `db`：PostgreSQL，容器首次初始化时会自动执行 `scripts/db/init` 目录下的 `.sql/.sh`，本项目提供按版本聚合的 `scripts/db/init/01_v1.sql`，内部依次包含 `v1/schema` 与 `v1/data`。
 - `redis`：Redis 服务，可按需启用缓存
 
 #### 常用 Docker Compose 操作
@@ -103,6 +109,7 @@ docker compose --env-file .env.production up --build
 - 停止并删除数据卷（会清空数据库数据，重新执行初始化脚本）：
   ```bash
   docker compose --env-file .env.development down -v
+  # 提醒：删除数据卷后，Postgres 将在下次启动时重新运行初始化脚本（01_v1.sql）
   ```
 - 重新构建并启动全部服务：
   ```bash

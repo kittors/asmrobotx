@@ -178,4 +178,4 @@ CREATE TABLE IF NOT EXISTS login_logs (
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
 
--- 数据初始化相关的 INSERT 语句已迁移至 scripts/db/init/02_seed_data.sql。
+-- 数据初始化相关的 INSERT 语句已迁移至 scripts/db/init/v1/data/001_seed_data.sql。
