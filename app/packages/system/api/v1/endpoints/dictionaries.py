@@ -168,17 +168,32 @@ def list_dictionary_items(
     type_code: str,
     keyword: Optional[str] = Query(None, description="按显示文本或实际值模糊搜索"),
     page: int = Query(1, ge=1, description="页码，从 1 开始"),
-    size: int = Query(10, ge=1, le=200, description="每页展示数量"),
+    size: int = Query(
+        10,
+        ge=1,
+        le=200,
+        description="每页展示数量；当 all=true 时忽略",
+    ),
+    all_: bool = Query(
+        False,
+        alias="all",
+        description="是否一次性返回所有数据；为 true 时忽略分页参数",
+    ),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ) -> DictionaryItemListResponse:
-    """根据类型编码返回字典项列表。"""
+    """根据类型编码返回字典项列表。
+
+    - 默认按 `page`/`size` 分页；
+    - 传入 `?all=true` 可一次性返回全部数据（按 `sort_order,id` 排序）。
+    """
     return dictionary_service.list_by_type(
         db,
         type_code=type_code,
         keyword=keyword,
         page=page,
         size=size,
+        fetch_all=all_,
     )
 
 

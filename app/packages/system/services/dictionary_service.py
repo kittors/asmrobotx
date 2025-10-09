@@ -115,11 +115,41 @@ class DictionaryService:
         keyword: Optional[str] = None,
         page: int = 1,
         size: int = 10,
+        fetch_all: bool = False,
     ) -> Dict[str, Any]:
-        """根据类型编码分页返回字典项列表。"""
+        """根据类型编码返回字典项列表。
+
+        - 当 `fetch_all` 为 True 时，忽略分页参数并一次性返回所有数据；
+        - 否则按 `page/size` 进行分页。
+        """
         dictionary_type = dictionary_type_crud.get_by_code(db, type_code)
         if dictionary_type is None:
             raise AppException("字典类型不存在或已删除", HTTP_STATUS_NOT_FOUND)
+
+        if fetch_all:
+            # 先获取总数，再一次性取全量（避免固定上限）。
+            _, total = dictionary_crud.list_with_filters(
+                db,
+                type_code=type_code,
+                keyword=keyword,
+                skip=0,
+                limit=1,
+            )
+            limit = max(total, 1)
+            items, _ = dictionary_crud.list_with_filters(
+                db,
+                type_code=type_code,
+                keyword=keyword,
+                skip=0,
+                limit=limit,
+            )
+            payload = {
+                "total": total,
+                "page": 1,
+                "size": total,
+                "list": [self._serialize_item(item) for item in items],
+            }
+            return create_response("获取字典项成功", payload, HTTP_STATUS_OK)
 
         normalized_page = max(page, 1)
         normalized_size = max(min(size, 200), 1)
