@@ -1,0 +1,52 @@
+"""字典类型的数据库访问方法。"""
+
+from __future__ import annotations
+
+from typing import List, Optional
+
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
+
+from app.packages.system.crud.base import CRUDBase
+from app.packages.system.models.dictionary import DictionaryType
+
+
+class CRUDDictionaryType(CRUDBase[DictionaryType]):
+    """提供字典类型的常见查询与操作。"""
+
+    def get_by_code(
+        self,
+        db: Session,
+        type_code: str,
+        *,
+        include_deleted: bool = False,
+    ) -> Optional[DictionaryType]:
+        """根据类型编码查询字典类型。"""
+        query = db.query(self.model).filter(self.model.type_code == type_code)
+        if hasattr(self.model, "is_deleted") and not include_deleted:
+            query = query.filter(self.model.is_deleted.is_(False))
+        return query.first()
+
+    def list_with_keyword(self, db: Session, *, keyword: Optional[str] = None) -> List[DictionaryType]:
+        """按照关键字（匹配编码或显示名称）返回全部字典类型。"""
+        query = db.query(self.model)
+        if hasattr(self.model, "is_deleted"):
+            query = query.filter(self.model.is_deleted.is_(False))
+
+        if keyword:
+            trimmed = keyword.strip()
+            if trimmed:
+                pattern = f"%{trimmed}%"
+                query = query.filter(
+                    or_(
+                        self.model.type_code.ilike(pattern),
+                        self.model.display_name.ilike(pattern),
+                    )
+                )
+
+        return query.order_by(self.model.sort_order.asc(), self.model.id.asc()).all()
+
+
+dictionary_type_crud = CRUDDictionaryType(DictionaryType)
+
+__all__ = ["dictionary_type_crud"]

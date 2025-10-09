@@ -4,18 +4,20 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from app.api.v1 import api_router
-from app.core.config import get_settings
-from app.core.exceptions import generic_exception_handler, http_exception_handler
-from app.core.logger import setup_logging, logger
-from app.core.responses import create_response
-from app.db.init_db import init_db
+from app.packages import get_active_package
 
-setup_logging()
-settings = get_settings()
+package = get_active_package()
+package.setup_logging()
+settings = package.get_settings()
+logger = package.logger
+init_db = package.init_db
+api_router = package.api_router
+create_response = package.create_response
+http_exception_handler = package.http_exception_handler
+generic_exception_handler = package.generic_exception_handler
 
 app = FastAPI(title=settings.project_name, debug=settings.debug)
 

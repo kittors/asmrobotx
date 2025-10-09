@@ -8,10 +8,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.dependencies import get_db
-from app.db import session as db_session
-from app.db.init_db import init_db
-from app.models.base import Base
+from app.packages.system.core.dependencies import get_db
+from app.packages.system.db import session as db_session
+from app.packages.system.db.init_db import init_db
+from app.packages.system.models.base import Base
 from app.main import app
 
 TEST_DB_PATH = os.path.join(os.path.dirname(__file__), "test.db")

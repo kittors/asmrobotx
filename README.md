@@ -1,6 +1,6 @@
 # ASM RobotX Backend
 
-基于 FastAPI 的用户与权限管理服务，提供注册、登录、用户信息查询以及组织机构列表等核心能力，并包含生产级部署、日志、缓存预留、统一响应格式及环境配置。
+基于 FastAPI 的用户与权限管理服务，提供注册、登录、用户信息查询以及组织机构列表等核心能力。当前代码已重构为**多业务包架构**，通过 `app/packages` 统一管理系统包及后续的业务包（例如 ChatBox 等），并包含生产级部署、日志、缓存预留、统一响应格式及环境配置。
 
 ## 功能特性
 - JWT 认证的注册 / 登录流程，密码使用 Bcrypt 加密存储
@@ -10,18 +10,23 @@
 - Docker Compose 支持，自动数据库初始化脚本
 - Pytest 接口测试覆盖注册、登录、用户信息、组织列表
 - 操作/登录日志审计，支持搜索、详情、清理与 Excel 导出
+- 多包装载机制：主应用按 `APP_ACTIVE_PACKAGE` 选择业务包，默认启用 `system` 包
+- 初始化数据播种：应用启动或测试执行时会自动创建默认组织、管理员账号与常用字典项
 
 ## 项目结构
 ```
 .
 ├── app/
-│   ├── api/                   # FastAPI 路由 & 模型
-│   ├── core/                  # 配置、日志、安全、依赖等
-│   ├── crud/                  # 数据库 CRUD 封装
-│   ├── db/                    # 会话与初始化
-│   ├── models/                # SQLAlchemy 模型
-│   ├── services/              # 业务服务逻辑
-│   └── main.py                # FastAPI 入口
+│   ├── main.py                # FastAPI 入口，按包动态装配
+│   └── packages/
+│       ├── types.py           # 业务包对主应用暴露的 Hook 定义
+│       └── system/            # 默认系统包，实现用户&权限管理
+│           ├── api/           # FastAPI 路由 & Pydantic 模型
+│           ├── core/          # 配置、日志、安全、依赖等
+│           ├── crud/          # 数据库 CRUD 封装
+│           ├── db/            # 会话与初始化（含默认数据播种）
+│           ├── models/        # SQLAlchemy 模型
+│           └── services/      # 业务服务逻辑
 ├── scripts/
 │   └── db/init/               # PostgreSQL 初始化 SQL
 ├── tests/                     # Pytest 自动化用例
@@ -56,6 +61,11 @@ docker compose --env-file .env.development up -d db redis
 
 ### 3. 启动应用
 ```bash
+# 默认启用 system 包，必要时可通过 APP_ACTIVE_PACKAGE 指定其它业务包
+# export APP_ACTIVE_PACKAGE=chatbox
+# 如需明确指定环境变量文件，可组合使用 ENV_FILE 或 ENVIRONMENT，
+# 例如 export ENV_FILE=.env.development 或 export ENVIRONMENT=development
+export ENV_FILE=.env.development
 uvicorn app.main:app --reload
 ```
 应用默认监听 `http://127.0.0.1:8000`。
@@ -75,7 +85,7 @@ docker compose --env-file .env.production up --build
 - `REDIS_HOST_PORT`：宿主机暴露的 Redis 端口（默认 6380）
 
 容器说明：
-- `app`：FastAPI 服务，启动时自动执行 `app/db/init_db.py` 进行数据初始化
+- `app`：FastAPI 服务，启动时自动执行 `app/packages/system/db/init_db.py` 进行数据初始化
 - `db`：PostgreSQL，执行 `scripts/db/init/01_init.sql` 注入基础数据
 - `redis`：Redis 服务，可按需启用缓存
 
@@ -113,7 +123,8 @@ pytest
 | `LOG_LEVEL` | 日志级别 |
 | `APP_PORT` / `POSTGRES_HOST_PORT` / `REDIS_HOST_PORT` | Docker 暴露的宿主机端口 |
 | `ENVIRONMENT` | 选择加载的环境文件（如 `development`、`production`，会加载 `.env.<ENVIRONMENT>`） |
-| `ENV_FILE` | 显式指定要加载的环境文件路径，优先级最高 |
+| `ENV_FILE` | 显式指定要加载的环境文件路径，优先级最高，例如 `export ENV_FILE=.env.development` |
+| `APP_ACTIVE_PACKAGE` | 指定要装载的业务包名称，默认 `system` |
 
 ## 主要 API
 | 方法 | 路径 | 描述 |
@@ -139,7 +150,7 @@ pytest
 }
 ```
 
-详尽接口文档请参考 `docs/api` 目录下的 Markdown 文件。
+详尽接口文档请参考 `docs/system/api` 目录下的 Markdown 文件。
 
 ## 后续扩展建议
 1. 引入 Alembic 进行结构化数据库迁移与版本控制。
