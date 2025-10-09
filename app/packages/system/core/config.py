@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=60, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    log_dir: str = Field(default="log", alias="LOG_DIR")
+    log_file_name: str = Field(default="app.log", alias="LOG_FILE_NAME")
     app_port: int = Field(default=8000, alias="APP_PORT")
 
     model_config = SettingsConfigDict(extra='ignore')
@@ -101,6 +103,22 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         """根据当前配置生成 Redis 连接地址。"""
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+
+    def _resolve_path(self, raw: str) -> Path:
+        path = Path(raw)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+        return path
+
+    @property
+    def log_directory(self) -> Path:
+        """返回日志目录的绝对路径，支持相对路径配置。"""
+        return self._resolve_path(self.log_dir)
+
+    @property
+    def log_file_path(self) -> Path:
+        """组合日志目录与文件名，得到完整的日志文件路径。"""
+        return self.log_directory / self.log_file_name
 
 
 @lru_cache

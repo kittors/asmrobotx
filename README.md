@@ -121,6 +121,8 @@ pytest
 | `JWT_SECRET_KEY` | JWT 签名密钥 |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 基础过期时间（分钟，滑动过期窗口） |
 | `LOG_LEVEL` | 日志级别 |
+| `LOG_DIR` | 日志文件目录（默认项目根目录下的 `log/`） |
+| `LOG_FILE_NAME` | 日志文件名（默认 `app.log`） |
 | `APP_PORT` / `POSTGRES_HOST_PORT` / `REDIS_HOST_PORT` | Docker 暴露的宿主机端口 |
 | `ENVIRONMENT` | 选择加载的环境文件（如 `development`、`production`，会加载 `.env.<ENVIRONMENT>`） |
 | `ENV_FILE` | 显式指定要加载的环境文件路径，优先级最高，例如 `export ENV_FILE=.env.development` |

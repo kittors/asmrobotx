@@ -48,6 +48,10 @@ class ColorFormatter(logging.Formatter):
 def setup_logging() -> None:
     """初始化日志系统，确保项目所有模块使用统一的输出格式与级别。"""
     settings = get_settings()
+    log_dir = settings.log_directory
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file_path = settings.log_file_path
+
     logging_config = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -62,26 +66,36 @@ def setup_logging() -> None:
                 "level": settings.log_level,
                 "class": "logging.StreamHandler",
                 "formatter": "standard",
-            }
+            },
+            "file": {
+                "level": settings.log_level,
+                "class": "logging.handlers.TimedRotatingFileHandler",
+                "formatter": "standard",
+                "filename": str(log_file_path),
+                "when": "midnight",
+                "backupCount": 14,
+                "encoding": "utf-8",
+                "delay": True,
+            },
         },
         "loggers": {
             "uvicorn": {
-                "handlers": ["default"],
+                "handlers": ["default", "file"],
                 "level": settings.log_level,
                 "propagate": False,
             },
             "uvicorn.error": {
                 "level": settings.log_level,
-                "handlers": ["default"],
+                "handlers": ["default", "file"],
                 "propagate": False,
             },
             "uvicorn.access": {
-                "handlers": ["default"],
+                "handlers": ["default", "file"],
                 "level": settings.log_level,
                 "propagate": False,
             },
             "app": {
-                "handlers": ["default"],
+                "handlers": ["default", "file"],
                 "level": settings.log_level,
                 "propagate": False,
             },
