@@ -49,6 +49,5 @@ class StorageConfigResponseData(BaseModel):
 
 
 StorageConfigListResponse = ResponseEnvelope[list[StorageConfigResponseData]]
-StorageConfigMutationResponse = ResponseEnvelope[StorageConfigResponseData | None]
+StorageConfigMutationResponse = ResponseEnvelope[Optional[StorageConfigResponseData]]
 StorageTestResponse = ResponseEnvelope[dict]
-

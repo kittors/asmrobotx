@@ -16,9 +16,9 @@ from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.logger import logger
 from app.packages.system.core.responses import create_response
+from fastapi import status
 from app.packages.system.core.constants import (
     HTTP_STATUS_BAD_REQUEST,
-    HTTP_STATUS_INTERNAL_SERVER_ERROR,
     HTTP_STATUS_NOT_FOUND,
     HTTP_STATUS_OK,
 )
@@ -91,7 +91,7 @@ class LocalBackend(StorageBackend):
             try:
                 self.root.mkdir(parents=True, exist_ok=True)
             except Exception as exc:  # pragma: no cover - 极端情况下可能失败
-                raise AppException(f"无法创建本地根目录: {exc}", HTTP_STATUS_INTERNAL_SERVER_ERROR) from exc
+                raise AppException(f"无法创建本地根目录: {exc}", status.HTTP_500_INTERNAL_SERVER_ERROR) from exc
 
     # 统一的安全路径拼接，防止路径遍历
     def _resolve(self, rel: str) -> Path:
@@ -159,7 +159,7 @@ class LocalBackend(StorageBackend):
                         }
                     )
         except PermissionError as exc:
-            raise AppException("无法读取目录内容：权限不足", HTTP_STATUS_INTERNAL_SERVER_ERROR) from exc
+            raise AppException("无法读取目录内容：权限不足", status.HTTP_500_INTERNAL_SERVER_ERROR) from exc
 
         current_path = "/" + (str(base.relative_to(self.root)) if base != self.root else "")
         if not current_path.endswith("/"):
@@ -289,7 +289,7 @@ class S3Backend(StorageBackend):
         except Exception as exc:
             raise AppException(
                 "S3 功能不可用：缺少依赖 boto3，请在后端安装后重试",
-                HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
             ) from exc
 
         self.boto3 = boto3
@@ -420,7 +420,7 @@ class S3Backend(StorageBackend):
             )
             return url
         except Exception as exc:
-            raise AppException(f"预签名 URL 生成失败: {exc}", HTTP_STATUS_INTERNAL_SERVER_ERROR) from exc
+            raise AppException(f"预签名 URL 生成失败: {exc}", status.HTTP_500_INTERNAL_SERVER_ERROR) from exc
 
     def download(self, *, path: str):
         key = self._join_key(path)

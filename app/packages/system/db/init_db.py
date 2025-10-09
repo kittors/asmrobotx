@@ -152,13 +152,15 @@ def _seed_dictionaries_from_sql_if_needed(db: Session) -> None:
     # 解析字典类型
     import re
 
-    def _parse_tuple_values(block: str) -> list[tuple[str, str, str | None, int]]:
+    from typing import Optional
+
+    def _parse_tuple_values(block: str) -> list[tuple[str, str, Optional[str], int]]:
         # 提取形如 ('a','b','c',1) 的元组序列
         pattern = re.compile(
             r"\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'(.*?)'\s*,\s*([0-9]+)\s*\)",
             re.DOTALL,
         )
-        results: list[tuple[str, str, str | None, int]] = []
+        results: list[tuple[str, str, Optional[str], int]] = []
         for m in pattern.finditer(block):
             type_code = m.group(1)
             display_name = m.group(2)

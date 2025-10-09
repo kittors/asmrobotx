@@ -140,10 +140,10 @@ class StorageService:
             "name": item.name,
             "type": item.type,
             "region": item.region,
-            "bucket_name": item.bucket_name,
-            "path_prefix": item.path_prefix,
-            "local_root_path": item.local_root_path,
-            "created_at": format_datetime(item.create_time),
+            "bucketName": item.bucket_name,
+            "pathPrefix": item.path_prefix,
+            "localRootPath": item.local_root_path,
+            "createdAt": format_datetime(item.create_time),
         }
         if include_status:
             try:
@@ -168,4 +168,3 @@ class StorageService:
 
 
 storage_service = StorageService()
-

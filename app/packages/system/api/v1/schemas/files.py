@@ -1,6 +1,6 @@
 """文件管理 - 文件/文件夹 操作请求/响应模型。"""
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -33,5 +33,4 @@ class DeleteBody(BaseModel):
 
 
 FilesListResponse = ResponseEnvelope[dict]
-FilesMutationResponse = ResponseEnvelope[dict | list | None]
-
+FilesMutationResponse = ResponseEnvelope[Any]
