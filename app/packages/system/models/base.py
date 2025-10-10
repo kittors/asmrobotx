@@ -93,8 +93,7 @@ user_roles = Table(
     ),
     Column("is_deleted", Boolean, server_default=expression.false(), nullable=False),
     Column("created_by", Integer, nullable=True, index=True),
-    # 避免与主键 organization_id 冲突，审计字段命名为 owner_org_id
-    Column("owner_org_id", Integer, nullable=True, index=True),
+    Column("organization_id", Integer, nullable=True, index=True),
 )
 
 role_permissions = Table(
@@ -112,7 +111,7 @@ role_permissions = Table(
     ),
     Column("is_deleted", Boolean, server_default=expression.false(), nullable=False),
     Column("created_by", Integer, nullable=True, index=True),
-    Column("owner_org_id", Integer, nullable=True, index=True),
+    Column("organization_id", Integer, nullable=True, index=True),
 )
 
 role_access_controls = Table(
