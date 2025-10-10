@@ -33,6 +33,7 @@ from app.packages.system.models.user import User
 from app.packages.system.services.file_service import file_service
 from app.packages.system.services.clipboard_service import clipboard_service
 from app.packages.system.services.log_service import log_service
+from app.packages.system.services.thumbnail_service import thumbnail_service
 
 router = APIRouter(tags=["files"])
 
@@ -149,6 +150,25 @@ def preview_file(
     _: User = Depends(get_current_active_user),
 ):
     return file_service.preview(db, storage_id=storage_id, path=path)
+
+
+@router.get("/files/thumbnail")
+def get_thumbnail(
+    storage_id: int = Query(..., alias="storageId"),
+    path: str = Query(..., description="原始图片相对路径，形如 /dir/a.jpg"),
+    w: int = Query(256, ge=8, le=4096, description="缩略图最大宽度"),
+    h: Optional[int] = Query(None, ge=8, le=4096, description="缩略图最大高度，可选，默认等比根据 w 计算"),
+    fmt: str = Query("webp", description="输出格式：webp/png/jpeg"),
+    q: int = Query(75, ge=1, le=95, description="压缩质量(仅 webp/jpeg 有效)"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+):
+    """返回图片缩略图。
+
+    首次请求会生成并缓存缩略图（本地：`/.thumbnails`；S3：`thumbnails/`），
+    后续请求直接命中缓存，避免重复生成。
+    """
+    return thumbnail_service.get_or_create(db, storage_id=storage_id, path=path, width=w, height=h, fmt=fmt, quality=q)
 
 
 @router.post("/folders", response_model=FilesMutationResponse)

@@ -108,7 +108,7 @@
 所有接口需 `storageId` 指定存储源。
 
 ### GET /files
-列出目录内容（严格来自数据库）。
+列出目录内容（严格来自数据库）。图片文件会额外返回 `thumbnailUrl` 字段（默认宽度 256），用于卡片模式回显缩略图。
 
 查询：`storageId`, `path=/`, `fileType=image|document|spreadsheet|pdf|markdown|all`, `search`
 
@@ -131,12 +131,13 @@
     "rootPath": "/tmp/asmrobotx-files",
     "items": [
       {
-        "name": "a.txt",
+        "name": "a.jpg",
         "type": "file",
-        "mimeType": "text/plain",
-        "size": 11,
+        "mimeType": "image/jpeg",
+        "size": 102400,
         "lastModified": "2025-01-01T12:00:00Z",
-        "previewUrl": "/api/v1/files/preview?storageId=1&path=/docs/a.txt"
+        "previewUrl": "/api/v1/files/preview?storageId=1&path=/docs/a.jpg",
+        "thumbnailUrl": "/api/v1/files/thumbnail?storageId=1&path=/docs/a.jpg&w=256"
       },
       { "name": "images", "type": "directory", "size": 0 }
     ]
@@ -184,6 +185,20 @@
 
 ### GET /files/preview
 预览文件（LOCAL：内联流；S3：当 `acl_type=private` 返回预签名 URL 重定向，`public/custom` 返回直链重定向）。
+
+### GET /files/thumbnail
+按需生成并返回图片缩略图（懒生成 + 存储级缓存）。
+
+查询：`storageId`, `path`, `w=256`, `h`（可选）, `format=webp|png|jpeg`, `q=75`
+
+- 首次访问会在存储中生成并缓存：
+  - LOCAL：`/.thumbnails/<原目录>/<文件名>__w{w}[x{h}].{format}`；
+  - S3：`thumbnails/<原目录>/<文件名>__w{w}[x{h}].{format}`；
+- 之后相同参数直接命中缓存；
+- 当 S3 为私有桶时返回预签名 URL 重定向，public/custom 返回直链；LOCAL 直接文件响应；
+- 安全/限制：原图大于 20MB 或非图片类型将拒绝生成；可通过 `w/h/format/q` 控制输出。
+
+前端使用：在卡片模式 `<img :src="thumbnailUrl" />`，点击大图仍使用 `previewUrl`。
 
 ### POST /folders
 创建文件夹。
@@ -268,6 +283,7 @@
   - 生产示例：`LOCAL_FILE_ROOT=/data/asmrobotx-files`（建议挂载持久卷）
 
 > 提示：S3 功能需后端安装 `boto3`（已在 requirements.txt 中）。
+> 缩略图需安装 `Pillow`（已在 requirements.txt 中）。
 
 ---
 

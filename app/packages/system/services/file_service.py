@@ -183,16 +183,19 @@ class FileService:
                     continue
             if not _is_allowed_type(name):
                 continue
-            items.append(
-                {
-                    "name": name,
-                    "type": "file",
-                    "mimeType": r.mime_type,
-                    "size": int(r.size_bytes or 0),
-                    "lastModified": (getattr(r, "update_time", None) or getattr(r, "create_time", None)).isoformat() if getattr(r, "create_time", None) else None,
-                    "previewUrl": f"/api/v1/files/preview?storageId={storage_id}&path={current_path}{name}",
-                }
-            )
+            file_item = {
+                "name": name,
+                "type": "file",
+                "mimeType": r.mime_type,
+                "size": int(r.size_bytes or 0),
+                "lastModified": (getattr(r, "update_time", None) or getattr(r, "create_time", None)).isoformat() if getattr(r, "create_time", None) else None,
+                "previewUrl": f"/api/v1/files/preview?storageId={storage_id}&path={current_path}{name}",
+            }
+            # 图片提供缩略图 URL（默认 256）
+            mime_lc = (r.mime_type or "").lower()
+            if mime_lc.startswith("image/"):
+                file_item["thumbnailUrl"] = f"/api/v1/files/thumbnail?storageId={storage_id}&path={current_path}{name}&w=256"
+            items.append(file_item)
 
         # 若为本地存储，额外返回根目录绝对路径（currentPath 仍保持相对路径样式）
         root_path: Optional[str] = None
@@ -262,6 +265,9 @@ class FileService:
                     dir_path = f"{cur_display}{it['name']}"
                     if dir_path.endswith("/"):
                         dir_path = dir_path.rstrip("/")
+                    # 跳过缩略图缓存目录
+                    if it.get("name") in {".thumbnails", "thumbnails"}:
+                        continue
                     # 路径长度防御
                     if len(dir_path) > 1024:
                         skipped += 1
