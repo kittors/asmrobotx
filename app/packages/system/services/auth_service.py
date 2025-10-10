@@ -16,7 +16,12 @@ from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.logger import logger
 from app.packages.system.core.responses import create_response
 from app.packages.system.core.timezone import now as tz_now
-from app.packages.system.core.security import create_access_token, get_password_hash, verify_password
+from app.packages.system.core.security import (
+    create_access_token,
+    get_password_hash,
+    verify_password,
+    store_refreshed_token,
+)
 from app.packages.system.crud.organizations import organization_crud
 from app.packages.system.crud.roles import role_crud
 from app.packages.system.crud.users import user_crud
@@ -108,6 +113,9 @@ class AuthService:
             audit_meta=audit_meta,
             user=user,
         )
+
+        # 将签发的访问令牌通过上下文传递，便于响应阶段统一在 body.meta 与响应头返回
+        store_refreshed_token(access_token)
 
         return create_response(
             "登录成功",

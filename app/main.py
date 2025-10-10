@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 
 from app.packages import get_active_package
@@ -18,6 +19,7 @@ api_router = package.api_router
 create_response = package.create_response
 http_exception_handler = package.http_exception_handler
 generic_exception_handler = package.generic_exception_handler
+from app.packages.system.core.security import consume_refreshed_token
 
 app = FastAPI(title=settings.project_name, debug=settings.debug)
 
@@ -29,6 +31,25 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Access-Token"],
 )
+
+
+class AccessTokenHeaderMiddleware(BaseHTTPMiddleware):
+    """将当前请求上下文中的刷新令牌附加到响应头中。
+
+    若上游业务在本次请求内生成了新的访问令牌（滑动续期或登录成功），
+    则通过上下文变量暴露；本中间件会统一把该值写入响应头 `X-Access-Token`，
+    以便前端可选地接收并替换本地缓存。
+    """
+
+    async def dispatch(self, request, call_next):  # pragma: no cover - 框架胶水代码
+        response = await call_next(request)
+        token = consume_refreshed_token()
+        if token:
+            response.headers["X-Access-Token"] = token
+        return response
+
+
+app.add_middleware(AccessTokenHeaderMiddleware)
 
 
 @app.on_event("startup")

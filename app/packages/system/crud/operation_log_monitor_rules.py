@@ -53,7 +53,15 @@ class OperationLogMonitorRuleCRUD(CRUDBase[OperationLogMonitorRule]):
         # 仅用于模板匹配：从请求 URI 中剥离查询串，仅保留 path 用于与模板匹配
         path_only = request_uri.split("?", 1)[0]
 
-        best_match: Optional[Tuple[Tuple[int, int, int, int], OperationLogMonitorRule]] = None
+        # Ranking tuple shape:
+        # (
+        #   mode_score,         # exact(2) > prefix(1)
+        #   literal_score,      # literal path(2) > template with {param}(1)
+        #   method_score,       # exact method(2) > ALL(1)
+        #   length_score,       # longer patterns are more specific
+        #   rule_id             # stable tie-breaker: higher id wins (newer rule)
+        # )
+        best_match: Optional[Tuple[Tuple[int, int, int, int, int], OperationLogMonitorRule]] = None
         for rule in candidates:
             is_template = "{" in rule.request_uri and "}" in rule.request_uri
 
@@ -77,10 +85,12 @@ class OperationLogMonitorRuleCRUD(CRUDBase[OperationLogMonitorRule]):
             if not matched:
                 continue
 
+            # 更偏向非模板（字面量）规则，避免诸如 `/a/{id}` 抢占 `/a/routers` 的匹配权
+            literal_score = 2 if not is_template else 1
             method_score = 2 if rule.http_method == normalized_method else 1
             length_score = len(rule.request_uri)
 
-            current_rank = (mode_score, method_score, length_score, rule.id)
+            current_rank = (mode_score, literal_score, method_score, length_score, rule.id)
             if best_match is None or current_rank > best_match[0]:
                 best_match = (current_rank, rule)
 

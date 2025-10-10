@@ -159,3 +159,49 @@ def test_template_prefix_allows_deeper_paths(db_session_fixture: Session):
         .one_or_none()
     )
     assert stored is not None
+
+
+def test_literal_rule_takes_precedence_over_template(db_session_fixture: Session):
+    """当同时存在模板规则与字面量规则时，应优先选择更具体的字面量规则。"""
+
+    # 先确保存在模板规则：/api/v1/access-controls/{item_id}（启用）
+    _ensure_monitor_rule(
+        db_session_fixture,
+        request_uri="/api/v1/access-controls/{item_id}",
+        http_method="GET",
+        match_mode="exact",
+        is_enabled=True,
+    )
+
+    # 再插入字面量规则：/api/v1/access-controls/routers（禁用）
+    _ensure_monitor_rule(
+        db_session_fixture,
+        request_uri="/api/v1/access-controls/routers",
+        http_method="GET",
+        match_mode="exact",
+        is_enabled=False,
+    )
+
+    # 命中路径应按字面量规则（禁用）处理，从而跳过写入
+    skipped = log_service.record_operation_log(
+        db_session_fixture,
+        payload={
+            "module": "访问控制管理",
+            "business_type": "query",
+            "operator_name": "tester",
+            "operator_department": None,
+            "operator_ip": "127.0.0.1",
+            "operator_location": None,
+            "request_method": "GET",
+            "request_uri": "/api/v1/access-controls/routers",
+            "class_method": "tests.system.test_logs_template.test_literal_rule_takes_precedence_over_template",
+            "request_params": None,
+            "response_params": None,
+            "status": "success",
+            "error_message": None,
+            "cost_ms": 1,
+            "operate_time": datetime(2027, 2, 1, 12, 10, 0, tzinfo=timezone.utc),
+        },
+    )
+
+    assert skipped is None

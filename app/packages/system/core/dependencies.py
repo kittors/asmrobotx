@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.packages.system.core.constants import ACCESS_TOKEN_TYPE
 from app.packages.system.core.config import get_settings
-from app.packages.system.core.security import decode_token, store_current_session_id
+from app.packages.system.core.security import (
+    decode_token,
+    store_current_session_id,
+    store_refreshed_token,
+    create_access_token,
+)
 from app.packages.system.core.session import touch_session
 from app.packages.system.crud.users import user_crud
 from app.packages.system.db.session import SessionLocal
@@ -60,7 +65,17 @@ def get_current_user(
     if not touch_session(session_id, user.id, ttl_seconds):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token 无效或已过期")
 
+    # 记录会话 ID 以便后续使用（例如退出登录）
     store_current_session_id(session_id)
+
+    # 为滑动会话生成一个新的访问令牌，并通过上下文在响应阶段附带返回。
+    # 客户端可以选择忽略该 Token（当前实现服务端并不强制令牌轮换）。
+    try:
+        refreshed_token = create_access_token({"user_id": user.id, "username": user.username, "sid": session_id})
+        store_refreshed_token(refreshed_token)
+    except Exception:
+        # 令牌刷新失败不应影响主流程
+        pass
 
     return user
 

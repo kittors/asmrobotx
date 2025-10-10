@@ -246,11 +246,37 @@ def list_monitor_rules(
     status_code=http_status.HTTP_201_CREATED,
 )
 def create_monitor_rule(
+    request: Request,
     payload: MonitorRuleCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> MonitorRuleDetailResponse:
-    return log_service.create_monitor_rule(db, payload=payload.model_dump(exclude_none=True))
+    started_at = tz_now()
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+
+    try:
+        response_payload = log_service.create_monitor_rule(db, payload=payload.model_dump(exclude_none=True))
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            module_name="日志管理",
+            business_type="create",
+            class_method="app.packages.system.api.v1.endpoints.logs.create_monitor_rule",
+            request_body=payload.model_dump(exclude_none=True),
+            response_body=response_payload["data"] if isinstance(response_payload, dict) else None,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
 
 
 @router.get("/monitor-rules/{rule_id}", response_model=MonitorRuleDetailResponse)
@@ -264,25 +290,78 @@ def get_monitor_rule_detail(
 
 @router.put("/monitor-rules/{rule_id}", response_model=MonitorRuleDetailResponse)
 def update_monitor_rule(
+    request: Request,
     rule_id: int,
     payload: MonitorRuleUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> MonitorRuleDetailResponse:
-    return log_service.update_monitor_rule(
-        db,
-        rule_id=rule_id,
-        payload=payload.model_dump(exclude_unset=True, exclude_none=False),
-    )
+    started_at = tz_now()
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+    body = payload.model_dump(exclude_unset=True, exclude_none=False)
+
+    try:
+        response_payload = log_service.update_monitor_rule(
+            db,
+            rule_id=rule_id,
+            payload=body,
+        )
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            module_name="日志管理",
+            business_type="update",
+            class_method="app.packages.system.api.v1.endpoints.logs.update_monitor_rule",
+            request_body={"rule_id": rule_id, **body},
+            response_body=response_payload["data"] if isinstance(response_payload, dict) else None,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
 
 
 @router.delete("/monitor-rules/{rule_id}", response_model=MonitorRuleDeletionResponse)
 def delete_monitor_rule(
+    request: Request,
     rule_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> MonitorRuleDeletionResponse:
-    return log_service.delete_monitor_rule(db, rule_id=rule_id)
+    started_at = tz_now()
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+
+    try:
+        response_payload = log_service.delete_monitor_rule(db, rule_id=rule_id)
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            module_name="日志管理",
+            business_type="delete",
+            class_method="app.packages.system.api.v1.endpoints.logs.delete_monitor_rule",
+            request_body={"rule_id": rule_id},
+            response_body=response_payload,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
 
 
 @router.get("/logins", response_model=LoginLogListResponse)
@@ -345,19 +424,73 @@ def list_login_logs(
 
 @router.delete("/logins/{visit_number}", response_model=LoginLogDeletionResponse)
 def delete_login_log(
+    request: Request,
     visit_number: str,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> LoginLogDeletionResponse:
-    return log_service.delete_login_log(db, visit_number=visit_number)
+    """删除单条登录日志，并记录操作日志。"""
+    started_at = tz_now()
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+
+    try:
+        response_payload = log_service.delete_login_log(db, visit_number=visit_number)
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            module_name="日志管理",
+            business_type="delete",
+            class_method="app.packages.system.api.v1.endpoints.logs.delete_login_log",
+            request_body={"visit_number": visit_number},
+            response_body=response_payload,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
 
 
 @router.delete("/logins", response_model=LoginLogDeletionResponse)
 def clear_login_logs(
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> LoginLogDeletionResponse:
-    return log_service.clear_login_logs(db)
+    """清空登录日志，并记录操作日志（业务类型 clean）。"""
+    started_at = tz_now()
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+
+    try:
+        response_payload = log_service.clear_login_logs(db)
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            module_name="日志管理",
+            business_type="clean",
+            class_method="app.packages.system.api.v1.endpoints.logs.clear_login_logs",
+            request_body=None,
+            response_body=response_payload,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
 
 
 # ---------------------------------------------------------------------------
