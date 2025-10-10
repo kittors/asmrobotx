@@ -27,12 +27,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=RegisterResponse)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> RegisterResponse:
-    """调用认证服务完成注册流程并返回统一响应。"""
+    """调用认证服务完成注册流程并返回统一响应。注册不再接受组织选择，后端自动归属默认组织。"""
     return auth_service.register_user(
         db,
         username=payload.username,
         password=payload.password,
-        organization_id=payload.organization_id,
     )
 
 

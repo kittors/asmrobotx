@@ -161,6 +161,20 @@ ALTER TABLE role_access_controls ADD COLUMN IF NOT EXISTS organization_id INTEGE
 CREATE INDEX IF NOT EXISTS idx_role_access_controls_created_by ON role_access_controls(created_by);
 CREATE INDEX IF NOT EXISTS idx_role_access_controls_organization_id ON role_access_controls(organization_id);
 
+-- 角色-组织（数据权限）
+CREATE TABLE IF NOT EXISTS role_organizations (
+    role_id INTEGER,
+    organization_id INTEGER,
+    PRIMARY KEY (role_id, organization_id)
+);
+ALTER TABLE role_organizations ADD COLUMN IF NOT EXISTS create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE role_organizations ADD COLUMN IF NOT EXISTS update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE role_organizations ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE role_organizations ADD COLUMN IF NOT EXISTS created_by INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE role_organizations ADD COLUMN IF NOT EXISTS owner_org_id INTEGER NOT NULL DEFAULT 1;
+CREATE INDEX IF NOT EXISTS idx_role_organizations_created_by ON role_organizations(created_by);
+CREATE INDEX IF NOT EXISTS idx_role_organizations_owner_org_id ON role_organizations(owner_org_id);
+
 CREATE TABLE IF NOT EXISTS operation_logs (
     id SERIAL PRIMARY KEY,
     log_number VARCHAR(32) UNIQUE NOT NULL,

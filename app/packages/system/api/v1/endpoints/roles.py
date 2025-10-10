@@ -18,6 +18,10 @@ from app.packages.system.api.v1.schemas.roles import (
     RoleMutationResponse,
     RoleUpdateRequest,
     RoleStatusUpdateRequest,
+    RoleAssignedUsersResponse,
+    RoleAssignedOrganizationsResponse,
+    RoleAssignUsersRequest,
+    RoleAssignOrganizationsRequest,
 )
 from app.packages.system.core.constants import HTTP_STATUS_BAD_REQUEST
 from app.packages.system.core.dependencies import get_current_active_user, get_db
@@ -271,6 +275,100 @@ def change_role_status(
             current_user=current_user,
             business_type="update",
             class_method="app.packages.system.api.v1.endpoints.roles.change_role_status",
+            request_body=audit_body,
+            response_body=response_payload,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
+
+
+@router.get("/{role_id}/users", response_model=RoleAssignedUsersResponse)
+def get_role_assigned_users(
+    role_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> RoleAssignedUsersResponse:
+    return role_service.get_assigned_user_ids(db, role_id=role_id)
+
+
+@router.put("/{role_id}/users", response_model=RoleAssignedUsersResponse)
+def assign_role_users(
+    role_id: int,
+    payload: RoleAssignUsersRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> RoleAssignedUsersResponse:
+    body = payload.model_dump()
+    started_at = tz_now()
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+    audit_body = {"role_id": role_id, **body}
+
+    try:
+        response_payload = role_service.assign_users(db, role_id=role_id, user_ids=body.get("user_ids", []))
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            business_type="update",
+            class_method="app.packages.system.api.v1.endpoints.roles.assign_role_users",
+            request_body=audit_body,
+            response_body=response_payload,
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
+
+
+@router.get("/{role_id}/organizations", response_model=RoleAssignedOrganizationsResponse)
+def get_role_assigned_organizations(
+    role_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> RoleAssignedOrganizationsResponse:
+    return role_service.get_assigned_organization_ids(db, role_id=role_id)
+
+
+@router.put("/{role_id}/organizations", response_model=RoleAssignedOrganizationsResponse)
+def assign_role_organizations(
+    role_id: int,
+    payload: RoleAssignOrganizationsRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> RoleAssignedOrganizationsResponse:
+    body = payload.model_dump()
+    started_at = tz_now()
+    status = "success"
+    error_message: Optional[str] = None
+    response_payload: Optional[dict[str, Any]] = None
+    audit_body = {"role_id": role_id, **body}
+
+    try:
+        response_payload = role_service.assign_organizations(
+            db, role_id=role_id, organization_ids=body.get("organization_ids", [])
+        )
+        return response_payload
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            business_type="update",
+            class_method="app.packages.system.api.v1.endpoints.roles.assign_role_organizations",
             request_body=audit_body,
             response_body=response_payload,
             status=status,

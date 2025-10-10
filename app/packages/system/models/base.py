@@ -93,7 +93,8 @@ user_roles = Table(
     ),
     Column("is_deleted", Boolean, server_default=expression.false(), nullable=False),
     Column("created_by", Integer, nullable=True, index=True),
-    Column("organization_id", Integer, nullable=True, index=True),
+    # 避免与主键 organization_id 冲突，审计字段命名为 owner_org_id
+    Column("owner_org_id", Integer, nullable=True, index=True),
 )
 
 role_permissions = Table(
@@ -111,7 +112,7 @@ role_permissions = Table(
     ),
     Column("is_deleted", Boolean, server_default=expression.false(), nullable=False),
     Column("created_by", Integer, nullable=True, index=True),
-    Column("organization_id", Integer, nullable=True, index=True),
+    Column("owner_org_id", Integer, nullable=True, index=True),
 )
 
 role_access_controls = Table(
@@ -130,4 +131,23 @@ role_access_controls = Table(
     Column("is_deleted", Boolean, server_default=expression.false(), nullable=False),
     Column("created_by", Integer, nullable=True, index=True),
     Column("organization_id", Integer, nullable=True, index=True),
+)
+
+# 角色-组织多对多：用于“数据权限分配”，一个角色可授权访问多个组织的数据
+role_organizations = Table(
+    "role_organizations",
+    Base.metadata,
+    Column("role_id", Integer, primary_key=True, index=True),
+    Column("organization_id", Integer, primary_key=True, index=True),
+    Column("create_time", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column(
+        "update_time",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    ),
+    Column("is_deleted", Boolean, server_default=expression.false(), nullable=False),
+    Column("created_by", Integer, nullable=True, index=True),
+    Column("owner_org_id", Integer, nullable=True, index=True),
 )

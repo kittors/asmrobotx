@@ -24,6 +24,8 @@ from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.responses import create_response
 from app.packages.system.core.timezone import format_datetime
 from app.packages.system.crud.access_control import access_control_crud
+from app.packages.system.crud.users import user_crud
+from app.packages.system.crud.organizations import organization_crud
 from app.packages.system.crud.roles import role_crud
 from app.packages.system.models.role import Role
 from app.core.datascope import get_scope
@@ -237,6 +239,78 @@ class RoleService:
     # ------------------------------------------------------------------
     # 内部辅助方法
     # ------------------------------------------------------------------
+
+    # -----------------------------
+    # 角色分配：用户 / 组织（数据权限）
+    # -----------------------------
+
+    def get_assigned_user_ids(self, db: Session, *, role_id: int) -> dict:
+        role = role_crud.get(db, role_id)
+        if role is None:
+            raise AppException("角色不存在或已删除", HTTP_STATUS_NOT_FOUND)
+        user_ids = sorted({user.id for user in role.users})
+        payload = {"role_id": role.id, "user_ids": user_ids}
+        return create_response("获取角色已分配用户成功", payload, HTTP_STATUS_OK)
+
+    def assign_users(self, db: Session, *, role_id: int, user_ids: Iterable[int]) -> dict:
+        role = role_crud.get(db, role_id)
+        if role is None:
+            raise AppException("角色不存在或已删除", HTTP_STATUS_NOT_FOUND)
+        # 去重、过滤非法值
+        requested = []
+        seen: set[int] = set()
+        for item in (int(x) for x in user_ids or []):
+            if item <= 0 or item in seen:
+                continue
+            seen.add(item)
+            requested.append(item)
+        # 查询存在的用户
+        users = user_crud.list_by_ids(db, requested)
+        missing = set(requested) - {u.id for u in users}
+        if missing:
+            raise AppException(
+                f"部分用户不存在：{', '.join(str(i) for i in sorted(missing))}",
+                HTTP_STATUS_NOT_FOUND,
+            )
+        role.users = users
+        db.add(role)
+        db.commit()
+        db.refresh(role)
+        payload = {"role_id": role.id, "user_ids": sorted({u.id for u in role.users})}
+        return create_response("分配用户成功", payload, HTTP_STATUS_OK)
+
+    def get_assigned_organization_ids(self, db: Session, *, role_id: int) -> dict:
+        role = role_crud.get(db, role_id)
+        if role is None:
+            raise AppException("角色不存在或已删除", HTTP_STATUS_NOT_FOUND)
+        org_ids = sorted({org.id for org in getattr(role, "organizations", [])})
+        payload = {"role_id": role.id, "organization_ids": org_ids}
+        return create_response("获取角色数据权限成功", payload, HTTP_STATUS_OK)
+
+    def assign_organizations(self, db: Session, *, role_id: int, organization_ids: Iterable[int]) -> dict:
+        role = role_crud.get(db, role_id)
+        if role is None:
+            raise AppException("角色不存在或已删除", HTTP_STATUS_NOT_FOUND)
+        requested = []
+        seen: set[int] = set()
+        for item in (int(x) for x in organization_ids or []):
+            if item <= 0 or item in seen:
+                continue
+            seen.add(item)
+            requested.append(item)
+        orgs = organization_crud.list_by_ids(db, requested)
+        missing = set(requested) - {o.id for o in orgs}
+        if missing:
+            raise AppException(
+                f"部分组织不存在：{', '.join(str(i) for i in sorted(missing))}",
+                HTTP_STATUS_NOT_FOUND,
+            )
+        role.organizations = orgs
+        db.add(role)
+        db.commit()
+        db.refresh(role)
+        payload = {"role_id": role.id, "organization_ids": sorted({o.id for o in role.organizations})}
+        return create_response("分配数据权限成功", payload, HTTP_STATUS_OK)
 
     def _normalize_statuses(self, statuses: Optional[Iterable[str]]) -> Optional[list[str]]:
         if statuses is None:

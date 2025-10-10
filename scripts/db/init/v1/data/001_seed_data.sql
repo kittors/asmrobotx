@@ -154,7 +154,11 @@ FROM (VALUES
     ('角色-更新', '/api/v1/roles/{role_id}', 'PUT', 'exact', TRUE, '更新角色信息', 'update'),
     ('角色-状态切换', '/api/v1/roles/{role_id}/status', 'PATCH', 'exact', TRUE, '更新角色状态', 'update'),
     ('角色-删除', '/api/v1/roles/{role_id}', 'DELETE', 'exact', TRUE, '删除角色', 'delete'),
-    ('角色-导出', '/api/v1/roles/export', 'GET', 'exact', TRUE, '导出角色列表', 'export')
+    ('角色-导出', '/api/v1/roles/export', 'GET', 'exact', TRUE, '导出角色列表', 'export'),
+    ('角色-分配用户查询', '/api/v1/roles/{role_id}/users', 'GET', 'exact', TRUE, '获取角色已分配用户', 'query'),
+    ('角色-分配用户', '/api/v1/roles/{role_id}/users', 'PUT', 'exact', TRUE, '为角色分配用户', 'update'),
+    ('角色-数据权限查询', '/api/v1/roles/{role_id}/organizations', 'GET', 'exact', TRUE, '获取角色数据权限', 'query'),
+    ('角色-分配组织', '/api/v1/roles/{role_id}/organizations', 'PUT', 'exact', TRUE, '为角色分配组织', 'update')
 ) AS v(name, request_uri, http_method, match_mode, is_enabled, description, operation_type_code)
 WHERE NOT EXISTS (
     SELECT 1

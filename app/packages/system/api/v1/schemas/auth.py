@@ -8,11 +8,10 @@ from app.packages.system.api.v1.schemas.common import ResponseEnvelope
 
 
 class RegisterRequest(BaseModel):
-    """用户注册时需要提交的字段约束。"""
+    """用户注册需要的字段。组织不再由前端选择，后端自动归属默认组织。"""
 
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=6, max_length=128)
-    organization_id: int = Field(..., ge=1)
 
 
 class LoginRequest(BaseModel):

@@ -5,7 +5,13 @@ from typing import List, Optional
 from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
 
-from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin, CreatedByMixin
+from app.packages.system.models.base import (
+    Base,
+    SoftDeleteMixin,
+    TimestampMixin,
+    CreatedByMixin,
+    role_organizations,
+)
 
 
 class Organization(CreatedByMixin, TimestampMixin, SoftDeleteMixin, Base):
@@ -36,4 +42,11 @@ class Organization(CreatedByMixin, TimestampMixin, SoftDeleteMixin, Base):
         primaryjoin="User.organization_id == Organization.id",
         foreign_keys="User.organization_id",
         back_populates="organization",
+    )
+    roles: Mapped[List["Role"]] = relationship(
+        "Role",
+        secondary=role_organizations,
+        primaryjoin="Organization.id == role_organizations.c.organization_id",
+        secondaryjoin="Role.id == role_organizations.c.role_id",
+        back_populates="organizations",
     )

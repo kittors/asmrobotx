@@ -71,6 +71,14 @@ class CRUDUser(CRUDBase[User]):
         query = self.query(db).filter(self.model.username.in_(tokens))
         return query.all()
 
+    def list_by_ids(self, db: Session, ids: Iterable[int]) -> list[User]:
+        """根据 ID 集合批量获取用户。"""
+        id_set = {int(i) for i in ids if i is not None}
+        if not id_set:
+            return []
+        query = self.query(db).filter(self.model.id.in_(id_set))
+        return query.all()
+
     def create_with_roles(
         self,
         db: Session,

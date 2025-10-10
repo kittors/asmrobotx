@@ -15,6 +15,7 @@ from app.packages.system.models.base import (
     role_access_controls,
     role_permissions,
     user_roles,
+    role_organizations,
 )
 
 
@@ -49,5 +50,12 @@ class Role(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMix
         secondary=role_access_controls,
         primaryjoin="Role.id == role_access_controls.c.role_id",
         secondaryjoin="AccessControlItem.id == role_access_controls.c.access_control_id",
+        back_populates="roles",
+    )
+    organizations: Mapped[List["Organization"]] = relationship(
+        "Organization",
+        secondary=role_organizations,
+        primaryjoin="Role.id == role_organizations.c.role_id",
+        secondaryjoin="Organization.id == role_organizations.c.organization_id",
         back_populates="roles",
     )

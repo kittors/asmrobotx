@@ -5,12 +5,9 @@ from fastapi.testclient import TestClient
 
 def test_register_user_success(client: TestClient):
     """注册流程：应成功创建新用户并返回基础信息。"""
-    org_response = client.get("/api/v1/organizations")
-    org_id = org_response.json()["data"][0]["org_id"]
-
     response = client.post(
         "/api/v1/auth/register",
-        json={"username": "tester", "password": "tester123", "organization_id": org_id},
+        json={"username": "tester", "password": "tester123"},
     )
 
     assert response.status_code == 200
@@ -22,16 +19,13 @@ def test_register_user_success(client: TestClient):
 
 def test_register_user_duplicate_username(client: TestClient):
     """注册流程：重复用户名时应返回 409 冲突。"""
-    org_response = client.get("/api/v1/organizations")
-    org_id = org_response.json()["data"][0]["org_id"]
-
     client.post(
         "/api/v1/auth/register",
-        json={"username": "duplicate", "password": "tester123", "organization_id": org_id},
+        json={"username": "duplicate", "password": "tester123"},
     )
     response = client.post(
         "/api/v1/auth/register",
-        json={"username": "duplicate", "password": "tester123", "organization_id": org_id},
+        json={"username": "duplicate", "password": "tester123"},
     )
 
     assert response.status_code == 409

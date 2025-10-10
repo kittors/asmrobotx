@@ -38,15 +38,16 @@ from app.packages.system.models.organization import Organization
 class AuthService:
     """负责处理用户注册与登录流程，并保持逻辑聚合。"""
 
-    def register_user(self, db: Session, *, username: str, password: str, organization_id: int) -> dict:
-        """创建新用户并设置默认角色，会校验用户名、组织合法性等条件。"""
+    def register_user(self, db: Session, *, username: str, password: str) -> dict:
+        """创建新用户并设置默认角色。注册不再允许前端选择组织，统一归属默认组织。"""
         existing_user = user_crud.get_by_username(db, username)
         if existing_user:
             raise AppException(msg="用户名已存在", code=HTTP_STATUS_CONFLICT)
 
-        organization = organization_crud.get(db, organization_id)
+        # 统一归属默认组织（研发部）。若不存在则报错提示初始化问题。
+        organization = organization_crud.get_by_name(db, DEFAULT_ORGANIZATION_NAME)
         if organization is None:
-            raise AppException(msg="组织机构不存在", code=HTTP_STATUS_NOT_FOUND)
+            raise AppException(msg="默认组织不存在", code=HTTP_STATUS_NOT_FOUND)
 
         default_role = role_crud.get_by_name(db, DEFAULT_USER_ROLE)
         if default_role is None:
@@ -64,7 +65,7 @@ class AuthService:
             db,
             username=username,
             hashed_password=hashed_password,
-            organization_id=organization_id,
+            organization_id=organization.id,
             roles=[default_role],
         )
 

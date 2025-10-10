@@ -156,20 +156,43 @@ class AccessControlService:
         is_admin = scope.is_admin
         role_ids = scope.role_ids
 
-        # 全量加载一次，用于构建树与回溯父级
+        # 全量加载一次，用于构建树与回溯父级（包含菜单与按钮）
         all_items = access_control_crud.list_all(db)
         if not all_items:
             return create_response("获取路由成功", [], HTTP_STATUS_OK)
 
         # 计算允许的节点集合
-        if is_admin:
-            allowed: set[int] = {item.id for item in all_items}
-        else:
-            permitted = access_control_crud.list_permitted_by_roles(db, role_ids)
-            allowed = {item.id for item in permitted}
+        by_all: Dict[int, AccessControlItem] = {item.id: item for item in all_items}
 
-        if not allowed:
-            return create_response("获取路由成功", [], HTTP_STATUS_OK)
+        if is_admin:
+            # 管理员允许全部菜单
+            allowed_menu_ids: set[int] = {
+                item.id
+                for item in all_items
+                if self._normalize_type_value(item.type) == AccessControlTypeEnum.MENU.value
+                and self._is_enabled(item.enabled_status)
+            }
+        else:
+            # 非管理员：基于角色授权项，回溯父链，仅保留菜单节点
+            permitted = access_control_crud.list_permitted_by_roles(db, role_ids)
+            allowed_ids = {item.id for item in permitted}
+            if not allowed_ids:
+                return create_response("获取路由成功", [], HTTP_STATUS_OK)
+
+            allowed_menu_ids: set[int] = set()
+            for leaf_id in allowed_ids:
+                current = by_all.get(leaf_id)
+                # 可能授权的是按钮或菜单，向上回溯到根
+                visited: set[int] = set()
+                while current is not None and current.id not in visited:
+                    visited.add(current.id)
+                    if self._normalize_type_value(current.type) == AccessControlTypeEnum.MENU.value and self._is_enabled(current.enabled_status):
+                        allowed_menu_ids.add(current.id)
+                    parent_id = current.parent_id
+                    current = by_all.get(parent_id) if parent_id is not None else None
+
+            if not allowed_menu_ids:
+                return create_response("获取路由成功", [], HTTP_STATUS_OK)
 
         # 构造 parent -> children map（仅菜单、且启用的节点参与）
         def is_menu_enabled(node: AccessControlItem) -> bool:
@@ -191,28 +214,36 @@ class AccessControlService:
         for siblings in children_map.values():
             siblings.sort(key=lambda node: (node.sort_order, node.id))
 
-        # 允许的菜单：自身在 allowed 或其任一后代在 allowed（回溯祖先）
-        include_map: Dict[int, bool] = {}
-
-        def has_allowed_descendant(node: AccessControlItem) -> bool:
-            for child in children_map.get(node.id, []):
-                if include_node(child):
-                    return True
-            return False
-
-        def include_node(node: AccessControlItem) -> bool:
-            if node.id in include_map:
-                return include_map[node.id]
-            include_self = node.id in allowed
-            include_children = has_allowed_descendant(node)
-            include_map[node.id] = include_self or include_children
-            return include_map[node.id]
-
-        roots = [node for node in children_map.get(None, []) if include_node(node)]
+        # 仅包含授权的菜单及其祖先（allowed_menu_ids 已包含祖先）
+        include_set = allowed_menu_ids
+        roots = [node for node in children_map.get(None, []) if node.id in include_set]
         if not roots:
             return create_response("获取路由成功", [], HTTP_STATUS_OK)
 
-        payload = [self._serialize_router_node(root, children_map, None) for root in roots]
+        def serialize_with_filter(node: AccessControlItem, parent: Optional[AccessControlItem]) -> Optional[Dict[str, Any]]:
+            if node.id not in include_set:
+                return None
+            child_nodes = [child for child in children_map.get(node.id, []) if child.id in include_set]
+            route = self._serialize_router_node(node, children_map, parent)
+            if child_nodes:
+                route_children = []
+                for child in child_nodes:
+                    payload_child = serialize_with_filter(child, node)
+                    if payload_child is not None:
+                        route_children.append(payload_child)
+                route["children"] = route_children
+                if len(route_children) > 1:
+                    route["alwaysShow"] = True
+                route["redirect"] = "noRedirect"
+            else:
+                route["children"] = []
+            return route
+
+        payload = []
+        for root in roots:
+            item = serialize_with_filter(root, None)
+            if item is not None:
+                payload.append(item)
         return create_response("获取路由成功", payload, HTTP_STATUS_OK)
 
     def get_detail(self, db: Session, *, item_id: int) -> dict[str, Any]:

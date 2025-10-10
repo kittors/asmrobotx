@@ -102,3 +102,29 @@ class RoleDeletionPayload(BaseModel):
 
 
 RoleDeletionResponse = ResponseEnvelope[RoleDeletionPayload]
+
+
+# -----------------------------
+# 分配：用户 / 组织（数据权限）
+# -----------------------------
+
+class RoleAssignedUsersPayload(BaseModel):
+    role_id: int
+    user_ids: List[int]
+
+
+class RoleAssignedOrganizationsPayload(BaseModel):
+    role_id: int
+    organization_ids: List[int]
+
+
+class RoleAssignUsersRequest(BaseModel):
+    user_ids: List[int] = Field(default_factory=list)
+
+
+class RoleAssignOrganizationsRequest(BaseModel):
+    organization_ids: List[int] = Field(default_factory=list)
+
+
+RoleAssignedUsersResponse = ResponseEnvelope[RoleAssignedUsersPayload]
+RoleAssignedOrganizationsResponse = ResponseEnvelope[RoleAssignedOrganizationsPayload]

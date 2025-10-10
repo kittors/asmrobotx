@@ -2,7 +2,7 @@
 
 ## POST `/api/v1/auth/register`
 
-用户注册，默认分配普通用户角色。
+用户注册，默认分配普通用户角色。注册不再允许选择组织，后端自动归属默认组织。
 
 ### 请求头
 - `Content-Type: application/json`
@@ -11,8 +11,7 @@
 ```json
 {
   "username": "string (3~50 位)",
-  "password": "string (6~128 位)",
-  "organization_id": 1
+  "password": "string (6~128 位)"
 }
 ```
 
@@ -37,7 +36,7 @@
 
 ### 异常响应
 - `409` 用户名已存在：`{"msg":"用户名已存在","data":null,"code":409}`
-- `404` 组织机构不存在：`{"msg":"组织机构不存在","data":null,"code":404}`
+- `404` 默认组织不存在：`{"msg":"默认组织不存在","data":null,"code":404}`
 - `422` 请求体验证失败（字段缺失/格式错误）。
 
 ---
