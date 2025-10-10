@@ -217,7 +217,8 @@ class FileService:
         说明：
         - 写入“文件记录”和“目录记录”（目录以 directory_entries 存储）；
         - 文件若已存在（以 directory+alias_name 判定），则更新 size/mime；
-        - 仅遍历单层目录并递归深入，S3 由于后端 list 限制为第一页，极大目录可能无法一次性完整同步。
+        - 仅遍历单层目录并递归深入，S3 由于后端 list 限制为第一页，极大目录可能无法一次性完整同步；
+        - 防御：跳过超长路径（>1024）条目；对异常做容错处理，尽力同步，不因单个目录/文件失败中断。
         """
 
         from app.packages.system.models.file_record import FileRecord
@@ -236,32 +237,42 @@ class FileService:
         scanned = 0
         inserted = 0
         updated = 0
+        skipped = 0  # 记录因路径过长或异常而跳过的条目数
+
+        visited: set[str] = set()
 
         def _walk(cur_path: str) -> None:
             nonlocal scanned, inserted, updated
-            data = backend.list(path=cur_path, file_type=None, search=None)
+            # 防止重复/环路
+            safe_cur = cur_path if cur_path.endswith("/") else (cur_path + "/")
+            if safe_cur in visited:
+                return
+            visited.add(safe_cur)
+
+            try:
+                data = backend.list(path=cur_path, file_type=None, search=None)
+            except Exception:
+                # 某些目录不可读/已被删除：跳过
+                return
             cur_display = data.get("current_path") or (cur_path if cur_path.endswith("/") else (cur_path + "/"))
             _, dir_key = _norm_dir(cur_display)
             for it in data.get("items", []):
                 if it.get("type") == "directory":
-                    # 记录目录条目（不含末尾'/')
-                    try:
-                        from app.packages.system.crud.directory_entry import directory_entry_crud
-                        from app.packages.system.models.directory_entry import DirectoryEntry
-                        dir_path = f"{cur_display}{it['name']}"
-                        if dir_path.endswith("/"):
-                            dir_path = dir_path.rstrip("/")
-                        if dir_path and directory_entry_crud.get_by_path(db, storage_id=storage_id, path=dir_path) is None:
-                            directory_entry_crud.create(
-                                db,
-                                {
-                                    "storage_id": storage_id,
-                                    "path": dir_path,
-                                },
-                            )
-                    except Exception:
-                        # 目录表写入失败不影响继续扫描
-                        pass
+                    # 记录目录条目（不含末尾'/')，并下探
+                    dir_path = f"{cur_display}{it['name']}"
+                    if dir_path.endswith("/"):
+                        dir_path = dir_path.rstrip("/")
+                    # 路径长度防御
+                    if len(dir_path) > 1024:
+                        skipped += 1
+                    else:
+                        try:
+                            from app.packages.system.crud.directory_entry import directory_entry_crud
+                            from app.packages.system.models.directory_entry import DirectoryEntry
+                            if dir_path and directory_entry_crud.get_by_path(db, storage_id=storage_id, path=dir_path) is None:
+                                directory_entry_crud.create(db, {"storage_id": storage_id, "path": dir_path})
+                        except Exception:
+                            skipped += 1
                     _walk(f"{cur_display}{it['name']}")
                 elif it.get("type") == "file":
                     scanned += 1
@@ -269,39 +280,46 @@ class FileService:
                     size = int(it.get("size") or 0)
                     mime = it.get("mime_type")
                     # 查询是否存在
-                    existing = (
-                        file_record_crud
-                        .query(db)
-                        .filter(FileRecord.storage_id == storage_id)
-                        .filter(FileRecord.directory == dir_key)
-                        .filter(FileRecord.alias_name == name)
-                        .first()
-                    )
-                    if existing is None:
-                        file_record_crud.create(
-                            db,
-                            {
-                                "storage_id": storage_id,
-                                "directory": dir_key,
-                                "original_name": name,
-                                "alias_name": name,
-                                "purpose": "general",
-                                "size_bytes": size,
-                                "mime_type": mime,
-                            },
+                    try:
+                        # 过长路径/文件名防御
+                        if len(f"{dir_key}/{name}") > 1024 or len(name or "") > 255:
+                            skipped += 1
+                            continue
+                        existing = (
+                            file_record_crud
+                            .query(db)
+                            .filter(FileRecord.storage_id == storage_id)
+                            .filter(FileRecord.directory == dir_key)
+                            .filter(FileRecord.alias_name == name)
+                            .first()
                         )
-                        inserted += 1
-                    else:
-                        changed = False
-                        if int(existing.size_bytes or 0) != size:
-                            existing.size_bytes = size
-                            changed = True
-                        if (existing.mime_type or None) != (mime or None):
-                            existing.mime_type = mime
-                            changed = True
-                        if changed:
-                            file_record_crud.save(db, existing)
-                            updated += 1
+                        if existing is None:
+                            file_record_crud.create(
+                                db,
+                                {
+                                    "storage_id": storage_id,
+                                    "directory": dir_key,
+                                    "original_name": name,
+                                    "alias_name": name,
+                                    "purpose": "general",
+                                    "size_bytes": size,
+                                    "mime_type": mime,
+                                },
+                            )
+                            inserted += 1
+                        else:
+                            changed = False
+                            if int(existing.size_bytes or 0) != size:
+                                existing.size_bytes = size
+                                changed = True
+                            if (existing.mime_type or None) != (mime or None):
+                                existing.mime_type = mime
+                                changed = True
+                            if changed:
+                                file_record_crud.save(db, existing)
+                                updated += 1
+                    except Exception:
+                        skipped += 1
 
         # 开始遍历
         cur_display, _ = _norm_dir(path or "/")
@@ -309,7 +327,7 @@ class FileService:
 
         return create_response(
             "同步完成",
-            {"scanned": scanned, "inserted": inserted, "updated": updated},
+            {"scanned": scanned, "inserted": inserted, "updated": updated, "skipped": skipped},
             HTTP_STATUS_OK,
         )
 
