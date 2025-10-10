@@ -5,10 +5,16 @@ from typing import Optional
 from sqlalchemy import BigInteger, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin
+from app.packages.system.models.base import (
+    Base,
+    SoftDeleteMixin,
+    TimestampMixin,
+    CreatedByMixin,
+    OrganizationOwnedMixin,
+)
 
 
-class FileRecord(TimestampMixin, SoftDeleteMixin, Base):
+class FileRecord(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "file_records"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -19,4 +25,3 @@ class FileRecord(TimestampMixin, SoftDeleteMixin, Base):
     purpose: Mapped[str] = mapped_column(String(64), default="general")
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     mime_type: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-

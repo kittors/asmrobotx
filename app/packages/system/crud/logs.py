@@ -30,7 +30,7 @@ class OperationLogCRUD(CRUDBase[OperationLog]):
         skip: int = 0,
         limit: int = 50,
     ) -> Tuple[list[OperationLog], int]:
-        query = db.query(self.model).filter(self.model.is_deleted.is_(False))
+        query = self.query(db)
 
         if module:
             query = query.filter(self.model.module.ilike(f"%{module.strip()}%"))
@@ -63,31 +63,15 @@ class OperationLogCRUD(CRUDBase[OperationLog]):
         return items, total
 
     def get_by_number(self, db: Session, *, log_number: str) -> Optional[OperationLog]:
-        return (
-            db.query(self.model)
-            .filter(
-                self.model.log_number == log_number,
-                self.model.is_deleted.is_(False),
-            )
-            .first()
-        )
+        return self.query(db).filter(self.model.log_number == log_number).first()
 
     def remove_by_number(self, db: Session, *, log_number: str) -> int:
-        return (
-            db.query(self.model)
-            .filter(
-                self.model.log_number == log_number,
-                self.model.is_deleted.is_(False),
-            )
-            .update({self.model.is_deleted: True, self.model.update_time: func.now()})
+        return self.query(db).filter(self.model.log_number == log_number).update(
+            {self.model.is_deleted: True, self.model.update_time: func.now()}
         )
 
     def clear_all(self, db: Session) -> int:
-        return (
-            db.query(self.model)
-            .filter(self.model.is_deleted.is_(False))
-            .update({self.model.is_deleted: True, self.model.update_time: func.now()})
-        )
+        return self.query(db).update({self.model.is_deleted: True, self.model.update_time: func.now()})
 
 
 class LoginLogCRUD(CRUDBase[LoginLog]):
@@ -105,7 +89,7 @@ class LoginLogCRUD(CRUDBase[LoginLog]):
         skip: int = 0,
         limit: int = 50,
     ) -> Tuple[list[LoginLog], int]:
-        query = db.query(self.model).filter(self.model.is_deleted.is_(False))
+        query = self.query(db)
 
         if username:
             query = query.filter(self.model.username.ilike(f"%{username.strip()}%"))
@@ -130,31 +114,15 @@ class LoginLogCRUD(CRUDBase[LoginLog]):
         return items, total
 
     def get_by_number(self, db: Session, *, visit_number: str) -> Optional[LoginLog]:
-        return (
-            db.query(self.model)
-            .filter(
-                self.model.visit_number == visit_number,
-                self.model.is_deleted.is_(False),
-            )
-            .first()
-        )
+        return self.query(db).filter(self.model.visit_number == visit_number).first()
 
     def remove_by_number(self, db: Session, *, visit_number: str) -> int:
-        return (
-            db.query(self.model)
-            .filter(
-                self.model.visit_number == visit_number,
-                self.model.is_deleted.is_(False),
-            )
-            .update({self.model.is_deleted: True, self.model.update_time: func.now()})
+        return self.query(db).filter(self.model.visit_number == visit_number).update(
+            {self.model.is_deleted: True, self.model.update_time: func.now()}
         )
 
     def clear_all(self, db: Session) -> int:
-        return (
-            db.query(self.model)
-            .filter(self.model.is_deleted.is_(False))
-            .update({self.model.is_deleted: True, self.model.update_time: func.now()})
-        )
+        return self.query(db).update({self.model.is_deleted: True, self.model.update_time: func.now()})
 
 
 operation_log_crud = OperationLogCRUD(OperationLog)

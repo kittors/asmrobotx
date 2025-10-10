@@ -22,16 +22,15 @@ class CRUDDictionaryType(CRUDBase[DictionaryType]):
         include_deleted: bool = False,
     ) -> Optional[DictionaryType]:
         """根据类型编码查询字典类型。"""
-        query = db.query(self.model).filter(self.model.type_code == type_code)
-        if hasattr(self.model, "is_deleted") and not include_deleted:
-            query = query.filter(self.model.is_deleted.is_(False))
-        return query.first()
+        if include_deleted:
+            query = self.query(db, include_deleted=True)
+        else:
+            query = self.query(db)
+        return query.filter(self.model.type_code == type_code).first()
 
     def list_with_keyword(self, db: Session, *, keyword: Optional[str] = None) -> List[DictionaryType]:
         """按照关键字（匹配编码或显示名称）返回全部字典类型。"""
-        query = db.query(self.model)
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db)
 
         if keyword:
             trimmed = keyword.strip()

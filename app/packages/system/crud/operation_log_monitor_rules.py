@@ -39,9 +39,8 @@ class OperationLogMonitorRuleCRUD(CRUDBase[OperationLogMonitorRule]):
 
         normalized_method = (http_method or "ALL").upper()
         candidates = (
-            db.query(self.model)
+            self.query(db)
             .filter(
-                self.model.is_deleted.is_(False),
                 or_(
                     self.model.http_method == normalized_method,
                     self.model.http_method == "ALL",
@@ -130,14 +129,7 @@ class OperationLogMonitorRuleCRUD(CRUDBase[OperationLogMonitorRule]):
     def list_disabled_rules(self, db: Session) -> list[OperationLogMonitorRule]:
         """列出所有显式禁用的监听规则。"""
 
-        return (
-            db.query(self.model)
-            .filter(
-                self.model.is_deleted.is_(False),
-                self.model.is_enabled.is_(False),
-            )
-            .all()
-        )
+        return self.query(db).filter(self.model.is_enabled.is_(False)).all()
 
     def list_with_filters(
         self,
@@ -153,7 +145,7 @@ class OperationLogMonitorRuleCRUD(CRUDBase[OperationLogMonitorRule]):
         ) -> Tuple[list[OperationLogMonitorRule], int]:
         """按条件分页查询监听规则列表。"""
 
-        query = db.query(self.model).filter(self.model.is_deleted.is_(False))
+        query = self.query(db)
 
         if request_uri:
             query = query.filter(self.model.request_uri.ilike(f"%{request_uri.strip()}%"))
@@ -189,14 +181,10 @@ class OperationLogMonitorRuleCRUD(CRUDBase[OperationLogMonitorRule]):
     ) -> Optional[OperationLogMonitorRule]:
         """根据唯一键检索监听规则，排除软删除记录。"""
 
-        query = (
-            db.query(self.model)
-            .filter(
-                self.model.is_deleted.is_(False),
-                self.model.request_uri == request_uri,
-                self.model.http_method == http_method,
-                self.model.match_mode == match_mode,
-            )
+        query = self.query(db).filter(
+            self.model.request_uri == request_uri,
+            self.model.http_method == http_method,
+            self.model.match_mode == match_mode,
         )
 
         if exclude_id is not None:

@@ -6,10 +6,16 @@ from sqlalchemy import Boolean, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.packages.system.core.enums import UserStatusEnum
-from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin, user_roles
+from app.packages.system.models.base import (
+    Base,
+    SoftDeleteMixin,
+    TimestampMixin,
+    CreatedByMixin,
+    user_roles,
+)
 
 
-class User(TimestampMixin, SoftDeleteMixin, Base):
+class User(CreatedByMixin, TimestampMixin, SoftDeleteMixin, Base):
     """用户实体，与角色存在多对多关系，可选地挂载在某个组织下。"""
 
     __tablename__ = "users"

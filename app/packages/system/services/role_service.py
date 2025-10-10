@@ -26,6 +26,7 @@ from app.packages.system.core.timezone import format_datetime
 from app.packages.system.crud.access_control import access_control_crud
 from app.packages.system.crud.roles import role_crud
 from app.packages.system.models.role import Role
+from app.packages.system.core.datascope import get_scope
 
 
 class RoleService:
@@ -93,6 +94,7 @@ class RoleService:
         normalized_status = self._normalize_status(status)
         permissions = self._load_access_controls(db, permission_ids)
 
+        scope = get_scope()
         role = Role(
             name=name.strip(),
             role_key=role_key.strip(),
@@ -100,6 +102,11 @@ class RoleService:
             status=normalized_status,
             remark=(remark.strip() if remark and remark.strip() else None),
         )
+        # 归属组织与创建人（若上下文可用）
+        if hasattr(role, "organization_id") and scope.organization_id is not None:
+            role.organization_id = scope.organization_id
+        if hasattr(role, "created_by") and scope.user_id is not None:
+            role.created_by = scope.user_id
         role.access_controls = permissions
         db.add(role)
         db.commit()

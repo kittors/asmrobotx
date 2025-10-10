@@ -6,10 +6,17 @@ from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.packages.system.core.enums import PermissionTypeEnum
-from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin, role_permissions
+from app.packages.system.models.base import (
+    Base,
+    SoftDeleteMixin,
+    TimestampMixin,
+    CreatedByMixin,
+    OrganizationOwnedMixin,
+    role_permissions,
+)
 
 
-class Permission(TimestampMixin, SoftDeleteMixin, Base):
+class Permission(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     """权限实体，可被多个角色复用，并区分不同类型。"""
 
     __tablename__ = "permissions"

@@ -9,6 +9,7 @@ from app.packages.system.core.enums import UserStatusEnum
 from app.packages.system.crud.base import CRUDBase
 from app.packages.system.models.role import Role
 from app.packages.system.models.user import User
+from app.packages.system.core.datascope import get_scope
 
 
 class CRUDUser(CRUDBase[User]):
@@ -16,9 +17,7 @@ class CRUDUser(CRUDBase[User]):
 
     def get_by_username(self, db: Session, username: str) -> Optional[User]:
         """根据唯一用户名获取用户实例。"""
-        query = db.query(User).filter(User.username == username)
-        if hasattr(User, "is_deleted"):
-            query = query.filter(User.is_deleted.is_(False))
+        query = self.query(db).filter(User.username == username)
         return query.first()
 
     def list_with_filters(
@@ -34,9 +33,7 @@ class CRUDUser(CRUDBase[User]):
     ) -> Tuple[list[User], int]:
         """按照多条件过滤用户并返回分页结果。"""
 
-        query = db.query(self.model)
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db)
 
         if username:
             query = query.filter(self.model.username.ilike(f"%{username.strip()}%"))
@@ -69,9 +66,7 @@ class CRUDUser(CRUDBase[User]):
         tokens = {item.strip() for item in usernames if item and item.strip()}
         if not tokens:
             return []
-        query = db.query(self.model).filter(self.model.username.in_(tokens))
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db).filter(self.model.username.in_(tokens))
         return query.all()
 
     def create_with_roles(
@@ -92,15 +87,22 @@ class CRUDUser(CRUDBase[User]):
 
         effective_active = is_active if is_active is not None else resolved_status == UserStatusEnum.NORMAL.value
 
+        # 默认组织：优先使用显式传入；否则回落到当前数据域
+        scope = get_scope()
+        effective_org_id = organization_id if organization_id is not None else scope.organization_id
+
         user = User(
             username=username,
             hashed_password=hashed_password,
             nickname=nickname,
-            organization_id=organization_id,
+            organization_id=effective_org_id,
             status=resolved_status,
             remark=remark,
             is_active=effective_active,
         )
+        # 记录创建人（若处于认证上下文）
+        if hasattr(user, "created_by") and scope.user_id is not None:
+            user.created_by = scope.user_id
         user.roles = roles
         db.add(user)
         db.commit()

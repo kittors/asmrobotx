@@ -5,10 +5,16 @@ from typing import Optional
 from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin
+from app.packages.system.models.base import (
+    Base,
+    SoftDeleteMixin,
+    TimestampMixin,
+    CreatedByMixin,
+    OrganizationOwnedMixin,
+)
 
 
-class DictionaryType(TimestampMixin, SoftDeleteMixin, Base):
+class DictionaryType(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     """字典类型定义，描述一组字典项的用途与元数据。"""
 
     __tablename__ = "dictionary_types"
@@ -23,7 +29,7 @@ class DictionaryType(TimestampMixin, SoftDeleteMixin, Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
 
-class DictionaryEntry(TimestampMixin, SoftDeleteMixin, Base):
+class DictionaryEntry(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     """字典条目，按照 ``type_code`` 分类存储选项值。"""
 
     __tablename__ = "dictionary_entries"

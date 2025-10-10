@@ -6,10 +6,16 @@ from typing import Optional
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin
+from app.packages.system.models.base import (
+    Base,
+    SoftDeleteMixin,
+    TimestampMixin,
+    CreatedByMixin,
+    OrganizationOwnedMixin,
+)
 
 
-class OperationLogMonitorRule(TimestampMixin, SoftDeleteMixin, Base):
+class OperationLogMonitorRule(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     """配置操作日志监听规则，可基于 URI 与请求方法控制是否采集。"""
 
     __tablename__ = "operation_log_monitor_rules"
@@ -29,7 +35,7 @@ class OperationLogMonitorRule(TimestampMixin, SoftDeleteMixin, Base):
     operation_type_code: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
 
-class OperationLog(TimestampMixin, SoftDeleteMixin, Base):
+class OperationLog(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     """操作日志记录，覆盖接口调用的关键审计信息。"""
 
     __tablename__ = "operation_logs"
@@ -57,7 +63,7 @@ class OperationLog(TimestampMixin, SoftDeleteMixin, Base):
     )
 
 
-class LoginLog(TimestampMixin, SoftDeleteMixin, Base):
+class LoginLog(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     """登录日志记录，体现系统访问行为。"""
 
     __tablename__ = "login_logs"

@@ -6,10 +6,16 @@ from datetime import datetime
 from sqlalchemy import String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin
+from app.packages.system.models.base import (
+    Base,
+    SoftDeleteMixin,
+    TimestampMixin,
+    CreatedByMixin,
+    OrganizationOwnedMixin,
+)
 
 
-class DirectoryChangeRecord(TimestampMixin, SoftDeleteMixin, Base):
+class DirectoryChangeRecord(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "directory_change_records"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)

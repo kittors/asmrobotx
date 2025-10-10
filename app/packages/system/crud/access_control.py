@@ -13,9 +13,7 @@ class CRUDAccessControl(CRUDBase[AccessControlItem]):
 
     def list_all(self, db: Session) -> List[AccessControlItem]:
         """返回所有未删除的访问控制项，按照排序值与主键排序。"""
-        query = db.query(self.model)
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db)
         return query.order_by(self.model.sort_order, self.model.id).all()
 
     def get_by_permission_code(
@@ -26,18 +24,14 @@ class CRUDAccessControl(CRUDBase[AccessControlItem]):
         exclude_id: Optional[int] = None,
     ) -> Optional[AccessControlItem]:
         """按照唯一的权限字符检索访问控制项。"""
-        query = db.query(self.model).filter(self.model.permission_code == permission_code)
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db).filter(self.model.permission_code == permission_code)
         if exclude_id is not None:
             query = query.filter(self.model.id != exclude_id)
         return query.first()
 
     def has_children(self, db: Session, item_id: int) -> bool:
         """判断指定访问控制项是否存在未删除的子级。"""
-        query = db.query(self.model.id).filter(self.model.parent_id == item_id)
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db).with_entities(self.model.id).filter(self.model.parent_id == item_id)
         return query.first() is not None
 
     def list_by_ids(self, db: Session, ids: Iterable[int]) -> List[AccessControlItem]:
@@ -45,9 +39,7 @@ class CRUDAccessControl(CRUDBase[AccessControlItem]):
         id_set = {item for item in ids if item is not None}
         if not id_set:
             return []
-        query = db.query(self.model).filter(self.model.id.in_(id_set))
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db).filter(self.model.id.in_(id_set))
         return query.all()
 
 

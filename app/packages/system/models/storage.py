@@ -5,10 +5,16 @@ from typing import Optional
 from sqlalchemy import Boolean, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin
+from app.packages.system.models.base import (
+    Base,
+    SoftDeleteMixin,
+    TimestampMixin,
+    CreatedByMixin,
+    OrganizationOwnedMixin,
+)
 
 
-class StorageConfig(TimestampMixin, SoftDeleteMixin, Base):
+class StorageConfig(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     """存储源配置，保存访问不同存储后端所需的连接信息。
 
     说明：

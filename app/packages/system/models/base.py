@@ -1,4 +1,14 @@
-"""模型基类：统一声明式基类以及多对多关联表。"""
+"""模型基类：统一声明式基类、通用审计/归属字段与多对多关联表。
+
+本模块集中提供：
+- Base：SQLAlchemy 声明式基类，带统一命名约定；
+- TimestampMixin：`create_time`、`update_time`；
+- SoftDeleteMixin：`is_deleted`；
+- CreatedByMixin：`created_by`（创建人用户 ID，可空）；
+- OrganizationOwnedMixin：`organization_id`（归属组织 ID，可空）；
+- 三个多对多关联表（user_roles/role_permissions/role_access_controls），
+  补充了时间戳与软删除等审计字段，便于后续排查或扩展。
+"""
 
 from datetime import datetime
 
@@ -49,11 +59,34 @@ class SoftDeleteMixin:
     )
 
 
+# 记录创建人（用户 ID）。注意：允许为 NULL，以兼容系统脚本或历史数据。
+class CreatedByMixin:
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
+
+# 记录归属组织（组织 ID）。注意：允许为 NULL，以支持全局记录或历史数据。
+class OrganizationOwnedMixin:
+    organization_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
+
+# 多对多关系表：增加审计字段，便于追踪是谁在何时创建了关联；
+# 当前业务未启用“软删除关联”的语义，但保留 `is_deleted` 字段以备将来扩展。
 user_roles = Table(
     "user_roles",
     Base.metadata,
     Column("user_id", Integer, primary_key=True, index=True),
     Column("role_id", Integer, primary_key=True, index=True),
+    Column("create_time", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column(
+        "update_time",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    ),
+    Column("is_deleted", Boolean, server_default=expression.false(), nullable=False),
+    Column("created_by", Integer, nullable=True, index=True),
+    Column("organization_id", Integer, nullable=True, index=True),
 )
 
 role_permissions = Table(
@@ -61,6 +94,17 @@ role_permissions = Table(
     Base.metadata,
     Column("role_id", Integer, primary_key=True, index=True),
     Column("permission_id", Integer, primary_key=True, index=True),
+    Column("create_time", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column(
+        "update_time",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    ),
+    Column("is_deleted", Boolean, server_default=expression.false(), nullable=False),
+    Column("created_by", Integer, nullable=True, index=True),
+    Column("organization_id", Integer, nullable=True, index=True),
 )
 
 role_access_controls = Table(
@@ -68,4 +112,15 @@ role_access_controls = Table(
     Base.metadata,
     Column("role_id", Integer, primary_key=True, index=True),
     Column("access_control_id", Integer, primary_key=True, index=True),
+    Column("create_time", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column(
+        "update_time",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    ),
+    Column("is_deleted", Boolean, server_default=expression.false(), nullable=False),
+    Column("created_by", Integer, nullable=True, index=True),
+    Column("organization_id", Integer, nullable=True, index=True),
 )

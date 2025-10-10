@@ -10,13 +10,15 @@ from app.packages.system.models.base import (
     Base,
     SoftDeleteMixin,
     TimestampMixin,
+    CreatedByMixin,
+    OrganizationOwnedMixin,
     role_access_controls,
     role_permissions,
     user_roles,
 )
 
 
-class Role(TimestampMixin, SoftDeleteMixin, Base):
+class Role(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     """角色实体，汇集权限并通过多对多关系关联用户。"""
 
     __tablename__ = "roles"

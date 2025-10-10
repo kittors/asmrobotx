@@ -29,9 +29,7 @@ class CRUDDictionary(CRUDBase[DictionaryEntry]):
         limit: int,
     ) -> Tuple[List[DictionaryEntry], int]:
         """根据类型与搜索关键字返回分页后的字典项列表。"""
-        query = db.query(self.model).filter(self.model.type_code == type_code)
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db).filter(self.model.type_code == type_code)
 
         if keyword:
             trimmed = keyword.strip()
@@ -63,21 +61,24 @@ class CRUDDictionary(CRUDBase[DictionaryEntry]):
         include_deleted: bool = False,
     ) -> Optional[DictionaryEntry]:
         """按照类型与值查询字典项，可排除指定 ID。"""
-        query = db.query(self.model).filter(
+        query = self.query(db).filter(
             self.model.type_code == type_code,
             self.model.value == value,
         )
         if exclude_id is not None:
             query = query.filter(self.model.id != exclude_id)
-        if hasattr(self.model, "is_deleted") and not include_deleted:
-            query = query.filter(self.model.is_deleted.is_(False))
+        if include_deleted:
+            # 已在 self.query 处理中默认过滤软删除；当需要包含被删记录时，
+            # 直接改用 include_deleted=True 的查询
+            query = self.query(db, include_deleted=True)
+            query = query.filter(self.model.type_code == type_code, self.model.value == value)
+            if exclude_id is not None:
+                query = query.filter(self.model.id != exclude_id)
         return query.first()
 
     def soft_delete_by_type(self, db: Session, *, type_code: str) -> int:
         """将指定类型下的字典项批量软删除，返回受影响数量。"""
-        query = db.query(self.model).filter(self.model.type_code == type_code)
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db).filter(self.model.type_code == type_code)
         items = query.all()
         for item in items:
             item.is_deleted = True

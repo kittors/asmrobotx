@@ -1,20 +1,35 @@
 """组织模型：描述用户所属的组织机构。"""
 
-from typing import List
+from typing import List, Optional
 
-from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Integer, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
 
-from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin
+from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin, CreatedByMixin
 
 
-class Organization(TimestampMixin, SoftDeleteMixin, Base):
-    """组织实体，记录组织名称并维护与用户的一对多关系。"""
+class Organization(CreatedByMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """组织实体，支持层级结构：通过 `parent_id` 形成树，便于表达“公司-部门”。"""
 
     __tablename__ = "organizations"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    parent_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+
+    parent: Mapped[Optional["Organization"]] = relationship(
+        "Organization",
+        primaryjoin=lambda: foreign(Organization.parent_id) == Organization.id,
+        remote_side=lambda: Organization.id,
+        foreign_keys=lambda: Organization.parent_id,
+        back_populates="children",
+    )
+    children: Mapped[List["Organization"]] = relationship(
+        "Organization",
+        primaryjoin=lambda: foreign(Organization.parent_id) == Organization.id,
+        foreign_keys=lambda: Organization.parent_id,
+        back_populates="parent",
+    )
 
     users: Mapped[List["User"]] = relationship(
         "User",

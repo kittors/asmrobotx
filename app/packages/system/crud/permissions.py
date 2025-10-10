@@ -13,9 +13,7 @@ class CRUDPermission(CRUDBase[Permission]):
 
     def get_by_name(self, db: Session, name: str) -> Optional[Permission]:
         """根据唯一名称检索权限记录。"""
-        query = db.query(Permission).filter(Permission.name == name)
-        if hasattr(Permission, "is_deleted"):
-            query = query.filter(Permission.is_deleted.is_(False))
+        query = self.query(db).filter(Permission.name == name)
         return query.first()
 
 

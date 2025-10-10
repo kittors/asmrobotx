@@ -7,6 +7,11 @@ CREATE TABLE IF NOT EXISTS organizations (
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
+-- 增量列：组织层级与创建人
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS parent_id INTEGER;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS created_by INTEGER;
+CREATE INDEX IF NOT EXISTS idx_organizations_parent_id ON organizations(parent_id);
+CREATE INDEX IF NOT EXISTS idx_organizations_created_by ON organizations(created_by);
 
 CREATE TABLE IF NOT EXISTS roles (
     id SERIAL PRIMARY KEY,
@@ -19,6 +24,10 @@ CREATE TABLE IF NOT EXISTS roles (
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_roles_created_by ON roles(created_by);
+CREATE INDEX IF NOT EXISTS idx_roles_organization_id ON roles(organization_id);
 
 CREATE TABLE IF NOT EXISTS permissions (
     id SERIAL PRIMARY KEY,
@@ -29,6 +38,10 @@ CREATE TABLE IF NOT EXISTS permissions (
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE permissions ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE permissions ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_permissions_created_by ON permissions(created_by);
+CREATE INDEX IF NOT EXISTS idx_permissions_organization_id ON permissions(organization_id);
 
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -43,18 +56,35 @@ CREATE TABLE IF NOT EXISTS users (
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by INTEGER;
+CREATE INDEX IF NOT EXISTS idx_users_created_by ON users(created_by);
 
 CREATE TABLE IF NOT EXISTS user_roles (
     user_id INTEGER,
     role_id INTEGER,
     PRIMARY KEY (user_id, role_id)
 );
+-- 关联表补充审计/隔离列
+ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_user_roles_created_by ON user_roles(created_by);
+CREATE INDEX IF NOT EXISTS idx_user_roles_organization_id ON user_roles(organization_id);
 
 CREATE TABLE IF NOT EXISTS role_permissions (
     role_id INTEGER,
     permission_id INTEGER,
     PRIMARY KEY (role_id, permission_id)
 );
+ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_role_permissions_created_by ON role_permissions(created_by);
+CREATE INDEX IF NOT EXISTS idx_role_permissions_organization_id ON role_permissions(organization_id);
 
 -- ---------------------------------------------------------------------------
 -- 字典类型与字典项：用于维护前端通用的下拉/图标等可配置选项。
@@ -104,12 +134,23 @@ CREATE TABLE IF NOT EXISTS access_control_items (
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT uq_access_control_items_permission_code UNIQUE (permission_code)
 );
+ALTER TABLE access_control_items ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE access_control_items ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_access_control_items_created_by ON access_control_items(created_by);
+CREATE INDEX IF NOT EXISTS idx_access_control_items_organization_id ON access_control_items(organization_id);
 
 CREATE TABLE IF NOT EXISTS role_access_controls (
     role_id INTEGER,
     access_control_id INTEGER,
     PRIMARY KEY (role_id, access_control_id)
 );
+ALTER TABLE role_access_controls ADD COLUMN IF NOT EXISTS create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE role_access_controls ADD COLUMN IF NOT EXISTS update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE role_access_controls ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE role_access_controls ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE role_access_controls ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_role_access_controls_created_by ON role_access_controls(created_by);
+CREATE INDEX IF NOT EXISTS idx_role_access_controls_organization_id ON role_access_controls(organization_id);
 
 CREATE TABLE IF NOT EXISTS operation_logs (
     id SERIAL PRIMARY KEY,
@@ -149,6 +190,10 @@ CREATE TABLE IF NOT EXISTS operation_log_monitor_rules (
     CONSTRAINT ck_operation_log_monitor_rules_mode CHECK (match_mode IN ('exact', 'prefix')),
     CONSTRAINT ck_operation_log_monitor_rules_method CHECK (http_method <> '')
 );
+ALTER TABLE operation_logs ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE operation_logs ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_operation_logs_created_by ON operation_logs(created_by);
+CREATE INDEX IF NOT EXISTS idx_operation_logs_organization_id ON operation_logs(organization_id);
 
 ALTER TABLE operation_log_monitor_rules
     ADD COLUMN IF NOT EXISTS operation_type_code VARCHAR(32);
@@ -177,6 +222,10 @@ CREATE TABLE IF NOT EXISTS login_logs (
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_login_logs_created_by ON login_logs(created_by);
+CREATE INDEX IF NOT EXISTS idx_login_logs_organization_id ON login_logs(organization_id);
 
 -- 数据初始化相关的 INSERT 语句已迁移至 scripts/db/init/v1/data/001_seed_data.sql。
 
@@ -217,6 +266,10 @@ DO $$ BEGIN
         ALTER TABLE storage_configs ADD CONSTRAINT ck_storage_configs_acl_type CHECK (acl_type IN ('private','public','custom'));
     END IF;
 END $$;
+ALTER TABLE storage_configs ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE storage_configs ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_storage_configs_created_by ON storage_configs(created_by);
+CREATE INDEX IF NOT EXISTS idx_storage_configs_organization_id ON storage_configs(organization_id);
 
 -- ---------------------------------------------------------------------------
 -- 文件记录：保存上传文件的元数据（原名、别名、用途）。
@@ -234,6 +287,10 @@ CREATE TABLE IF NOT EXISTS file_records (
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE file_records ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE file_records ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_file_records_created_by ON file_records(created_by);
+CREATE INDEX IF NOT EXISTS idx_file_records_organization_id ON file_records(organization_id);
 
 CREATE INDEX IF NOT EXISTS idx_file_records_storage_dir ON file_records(storage_id, directory);
 CREATE INDEX IF NOT EXISTS idx_file_records_purpose ON file_records(purpose);
@@ -253,6 +310,10 @@ CREATE TABLE IF NOT EXISTS directory_change_records (
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE directory_change_records ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE directory_change_records ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_directory_change_records_created_by ON directory_change_records(created_by);
+CREATE INDEX IF NOT EXISTS idx_directory_change_records_organization_id ON directory_change_records(organization_id);
 
 -- 保证幂等导入：同一条记录不会重复插入
 CREATE UNIQUE INDEX IF NOT EXISTS uq_directory_change_records_dedup
@@ -260,3 +321,7 @@ ON directory_change_records(storage_id, action, COALESCE(path_old, ''), COALESCE
 WHERE is_deleted = FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_directory_change_records_storage ON directory_change_records(storage_id);
+ALTER TABLE operation_log_monitor_rules ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE operation_log_monitor_rules ADD COLUMN IF NOT EXISTS organization_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_operation_log_monitor_rules_created_by ON operation_log_monitor_rules(created_by);
+CREATE INDEX IF NOT EXISTS idx_operation_log_monitor_rules_organization_id ON operation_log_monitor_rules(organization_id);

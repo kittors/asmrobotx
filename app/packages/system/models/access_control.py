@@ -6,10 +6,17 @@ from sqlalchemy import Boolean, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 
 from app.packages.system.core.enums import AccessControlTypeEnum
-from app.packages.system.models.base import Base, SoftDeleteMixin, TimestampMixin, role_access_controls
+from app.packages.system.models.base import (
+    Base,
+    SoftDeleteMixin,
+    TimestampMixin,
+    CreatedByMixin,
+    OrganizationOwnedMixin,
+    role_access_controls,
+)
 
 
-class AccessControlItem(TimestampMixin, SoftDeleteMixin, Base):
+class AccessControlItem(CreatedByMixin, OrganizationOwnedMixin, TimestampMixin, SoftDeleteMixin, Base):
     """用于构建权限树的访问控制实体。"""
 
     __tablename__ = "access_control_items"

@@ -16,16 +16,12 @@ class CRUDRole(CRUDBase[Role]):
 
     def get_by_name(self, db: Session, name: str) -> Optional[Role]:
         """根据唯一名称查询角色。"""
-        query = db.query(Role).filter(Role.name == name)
-        if hasattr(Role, "is_deleted"):
-            query = query.filter(Role.is_deleted.is_(False))
+        query = self.query(db).filter(Role.name == name)
         return query.first()
 
     def get_by_key(self, db: Session, role_key: str) -> Optional[Role]:
         """按照权限字符查询角色。"""
-        query = db.query(Role).filter(Role.role_key == role_key)
-        if hasattr(Role, "is_deleted"):
-            query = query.filter(Role.is_deleted.is_(False))
+        query = self.query(db).filter(Role.role_key == role_key)
         return query.first()
 
     def list_with_filters(
@@ -41,9 +37,7 @@ class CRUDRole(CRUDBase[Role]):
         limit: int = 20,
     ) -> Tuple[list[Role], int]:
         """综合查询角色列表并返回总数。"""
-        query = db.query(self.model)
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db)
 
         if name:
             query = query.filter(self.model.name.ilike(f"%{name.strip()}%"))
@@ -76,9 +70,7 @@ class CRUDRole(CRUDBase[Role]):
         if not id_set:
             return []
 
-        query = db.query(self.model).filter(self.model.id.in_(id_set))
-        if hasattr(self.model, "is_deleted"):
-            query = query.filter(self.model.is_deleted.is_(False))
+        query = self.query(db).filter(self.model.id.in_(id_set))
         return query.all()
 
 
