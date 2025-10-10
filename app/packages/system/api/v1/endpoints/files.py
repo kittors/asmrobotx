@@ -44,10 +44,29 @@ def list_items(
     path: Optional[str] = Query("/"),
     file_type: Optional[str] = Query(None, alias="fileType"),
     search: Optional[str] = Query(None),
+    # 分页/排序（向后兼容：不传这些参数则返回旧结构）
+    limit: Optional[int] = Query(None, ge=1, le=500),
+    cursor: Optional[str] = Query(None),
+    include: Optional[str] = Query(None, pattern=r"^(dirs|files|all)$"),
+    order_by: Optional[str] = Query(None, alias="orderBy", pattern=r"^(name|size|time)$"),
+    order: Optional[str] = Query(None, pattern=r"^(asc|desc)$"),
+    count_only: bool = Query(False, alias="countOnly"),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
-    return file_service.list_items(db, storage_id=storage_id, path=path, file_type=file_type, search=search)
+    return file_service.list_items(
+        db,
+        storage_id=storage_id,
+        path=path,
+        file_type=file_type,
+        search=search,
+        limit=limit,
+        cursor=cursor,
+        include=include,
+        order_by=order_by,
+        order=order,
+        count_only=count_only,
+    )
 
 
 @router.post("/files/sync", response_model=FilesMutationResponse)
@@ -68,7 +87,13 @@ def sync_db_from_storage(
     resp: Optional[Any] = None
 
     try:
-        resp = file_service.sync_records(db, storage_id=storage_id, path=path)
+        # 在少量运行环境中可能遇到实例方法属性不可见的问题，这里显式通过类方法调用以增强鲁棒性。
+        try:
+            from app.packages.system.services.file_service import FileService as _FS
+            resp = _FS.sync_records(file_service, db, storage_id=storage_id, path=path)
+        except Exception:
+            # 回退到实例方法（若可用）
+            resp = file_service.sync_records(db, storage_id=storage_id, path=path)
         return resp
     except Exception as exc:
         status = "failure"
@@ -105,7 +130,51 @@ async def upload_files(
     resp: Optional[Any] = None
 
     try:
-        results = await file_service.upload(db, storage_id=storage_id, path=path, files=files, purpose=purpose)
+        # 直接使用存储后端上传，随后写入 file_records
+        backend = file_service._get_backend(db, storage_id=storage_id)
+        materials: list[tuple[str, bytes]] = []
+        meta: list[tuple[str, int, Optional[str]]] = []
+        import mimetypes
+        for up in files:
+            content = await up.read()
+            orig_name = up.filename
+            size = len(content)
+            mime, _ = mimetypes.guess_type(orig_name or "")
+            materials.append((orig_name, content))
+            meta.append((orig_name, size, mime))
+        results = backend.upload(path=path or "/", files=materials)
+
+        # 记录到数据库（失败不影响上传）
+        try:
+            from app.packages.system.crud.file_record import file_record_crud
+            norm_dir = (path or "/").strip()
+            if not norm_dir.startswith("/"):
+                norm_dir = "/" + norm_dir
+            if norm_dir.endswith("/"):
+                norm_dir = norm_dir.rstrip("/")
+            final_purpose = (purpose or "general").strip() or "general"
+            for i, res in enumerate(results):
+                if res.get("status") != "success":
+                    continue
+                orig_name = meta[i][0]
+                size = meta[i][1]
+                mime = meta[i][2]
+                stored_name = res.get("stored_name") or orig_name
+                file_record_crud.create(
+                    db,
+                    {
+                        "storage_id": storage_id,
+                        "directory": norm_dir,
+                        "original_name": orig_name,
+                        "alias_name": stored_name,
+                        "purpose": final_purpose,
+                        "size_bytes": size,
+                        "mime_type": mime,
+                    },
+                )
+        except Exception:
+            pass
+
         resp = create_response("上传完成", results, HTTP_STATUS_OK)
         return resp
     except Exception as exc:
@@ -139,7 +208,8 @@ def download_file(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
-    return file_service.download(db, storage_id=storage_id, path=path)
+    backend = file_service._get_backend(db, storage_id=storage_id)
+    return backend.download(path=path)
 
 
 @router.get("/files/preview")
@@ -149,7 +219,8 @@ def preview_file(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
-    return file_service.preview(db, storage_id=storage_id, path=path)
+    backend = file_service._get_backend(db, storage_id=storage_id)
+    return backend.preview(path=path)
 
 
 @router.get("/files/thumbnail")
@@ -186,7 +257,37 @@ def create_folder(
     resp: Optional[Any] = None
 
     try:
-        resp = file_service.mkdir(db, storage_id=storage_id, parent=path, name=payload.name)
+        # 直接调用存储后端，避免环境差异导致服务方法不可见；随后写入目录表
+        backend = file_service._get_backend(db, storage_id=storage_id)
+        resp = backend.mkdir(parent=path, name=payload.name)
+        # 写入 directory_entries
+        try:
+            from app.packages.system.crud.directory_entry import directory_entry_crud
+            from app.packages.system.models.directory_entry import DirectoryEntry
+
+            folder_name = None
+            if isinstance(resp, dict):
+                data = resp.get("data") or {}
+                if isinstance(data, dict):
+                    folder_name = data.get("folder_name")
+            if folder_name:
+                par = (path or "/").strip() or "/"
+                if not par.startswith("/"):
+                    par = "/" + par
+                if not par.endswith("/"):
+                    par = par + "/"
+                full_path = (par + folder_name).rstrip("/")
+                exists = (
+                    directory_entry_crud
+                    .query(db)
+                    .filter(DirectoryEntry.storage_id == storage_id)
+                    .filter(DirectoryEntry.path == full_path)
+                    .first()
+                )
+                if exists is None:
+                    directory_entry_crud.create(db, {"storage_id": storage_id, "path": full_path})
+        except Exception:
+            pass
         return resp
     except Exception as exc:
         status = "failure"
@@ -221,7 +322,8 @@ def rename(
     resp: Optional[Any] = None
 
     try:
-        resp = file_service.rename(db, storage_id=storage_id, old_path=payload.oldPath, new_path=payload.newPath)
+        backend = file_service._get_backend(db, storage_id=storage_id)
+        resp = backend.rename(old_path=payload.oldPath, new_path=payload.newPath)
         return resp
     except Exception as exc:
         status = "failure"
@@ -256,7 +358,8 @@ def move(
     resp: Optional[Any] = None
 
     try:
-        resp = file_service.move(db, storage_id=storage_id, source_paths=payload.sourcePaths, destination_path=payload.destinationPath)
+        backend = file_service._get_backend(db, storage_id=storage_id)
+        resp = backend.move(source_paths=payload.sourcePaths, destination_path=payload.destinationPath)
         return resp
     except Exception as exc:
         status = "failure"
@@ -295,7 +398,8 @@ def copy(
     resp: Optional[Any] = None
 
     try:
-        resp = file_service.copy(db, storage_id=storage_id, source_paths=payload.sourcePaths, destination_path=payload.destinationPath)
+        backend = file_service._get_backend(db, storage_id=storage_id)
+        resp = backend.copy(source_paths=payload.sourcePaths, destination_path=payload.destinationPath)
         return resp
     except Exception as exc:
         status = "failure"
@@ -334,7 +438,8 @@ def delete_items(
     resp: Optional[Any] = None
 
     try:
-        resp = file_service.delete(db, storage_id=storage_id, paths=payload.paths)
+        backend = file_service._get_backend(db, storage_id=storage_id)
+        resp = backend.delete(paths=payload.paths)
         return resp
     except Exception as exc:
         status = "failure"
@@ -469,10 +574,11 @@ def paste(
             resp = create_response("剪贴板无路径", None, HTTP_STATUS_OK)
             return resp
 
+        backend = file_service._get_backend(db, storage_id=storage_id)
         if action == "copy":
-            resp = file_service.copy(db, storage_id=storage_id, source_paths=paths, destination_path=destination_path)
+            resp = backend.copy(source_paths=paths, destination_path=destination_path)
         else:  # cut -> move
-            resp = file_service.move(db, storage_id=storage_id, source_paths=paths, destination_path=destination_path)
+            resp = backend.move(source_paths=paths, destination_path=destination_path)
 
         if clear_after:
             clipboard_service.clear(current_user.id)

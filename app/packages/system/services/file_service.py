@@ -51,7 +51,38 @@ class FileService:
         path: Optional[str] = "/",
         file_type: Optional[str] = None,
         search: Optional[str] = None,
+        # 分页/排序参数（可选）
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+        include: Optional[str] = None,
+        order_by: Optional[str] = None,
+        order: Optional[str] = None,
+        count_only: bool = False,
     ) -> Dict[str, Any]:
+        # 若提供了分页/排序/计数参数，则走新的分页逻辑；否则保持旧结构以兼容现有前端/测试
+        if any(
+            x is not None
+            for x in (
+                limit,
+                cursor,
+                include,
+                order_by,
+                order,
+            )
+        ) or count_only:
+            return self._list_items_paged(
+                db,
+                storage_id=storage_id,
+                path=path,
+                file_type=file_type,
+                search=search,
+                limit=limit,
+                cursor=cursor,
+                include=include,
+                order_by=order_by,
+                order=order,
+                count_only=count_only,
+            )
         """严格基于数据库返回文件列表。
 
         - 仅从表 `file_records` 读取，不触达对象存储或本地文件系统；
@@ -210,6 +241,288 @@ class FileService:
         if root_path:
             payload["rootPath"] = root_path
         return create_response("获取文件列表成功", payload, HTTP_STATUS_OK)
+
+    # ----------------------------
+    # 分页版列表（目录/文件分区分页）
+    # ----------------------------
+    def _list_items_paged(
+        self,
+        db: Session,
+        *,
+        storage_id: int,
+        path: Optional[str],
+        file_type: Optional[str],
+        search: Optional[str],
+        limit: Optional[int],
+        cursor: Optional[str],
+        include: Optional[str],
+        order_by: Optional[str],
+        order: Optional[str],
+        count_only: bool,
+    ) -> Dict[str, Any]:
+        import base64, json
+        from sqlalchemy import func, and_, or_, not_
+
+        from app.packages.system.models.file_record import FileRecord
+        from app.packages.system.crud.file_record import file_record_crud
+
+        # 归一化路径
+        raw_path = (path or "/").strip() or "/"
+        if not raw_path.startswith("/"):
+            raw_path = "/" + raw_path
+        current_path = raw_path if raw_path.endswith("/") else (raw_path + "/")
+        dir_key = raw_path.rstrip("/")
+
+        # 参数与默认
+        part = (include or "all").lower()
+        lmt = int(limit or 50)
+        ob = (order_by or "name").lower()
+        od = (order or "asc").lower()
+        od_asc = od == "asc"
+
+        def _encode_cursor(payload: dict) -> str:
+            return base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+
+        def _decode_cursor(c: Optional[str]) -> Optional[dict]:
+            if not c:
+                return None
+            try:
+                return json.loads(base64.urlsafe_b64decode(c.encode("ascii")).decode("utf-8"))
+            except Exception:
+                raise AppException("cursor 非法", HTTP_STATUS_BAD_REQUEST)
+
+        # counts-only 模式
+        if count_only:
+            dir_count = self._count_directories(db, storage_id=storage_id, current_path=current_path)
+            file_count = self._count_files(db, storage_id=storage_id, dir_key=dir_key, search=search, file_type=file_type)
+            payload = {"currentPath": current_path, "counts": {"dirCount": dir_count, "fileCount": file_count}}
+            try:
+                cfg = storage_config_crud.get(db, storage_id)
+                if cfg and (cfg.type or "").upper() == "LOCAL" and cfg.local_root_path:
+                    payload["rootPath"] = os.path.abspath(cfg.local_root_path)
+            except Exception:
+                pass
+            return create_response("获取文件数量成功", payload, HTTP_STATUS_OK)
+
+        result: dict = {"currentPath": current_path}
+        # rootPath（LOCAL）
+        try:
+            cfg = storage_config_crud.get(db, storage_id)
+            if cfg and (cfg.type or "").upper() == "LOCAL" and cfg.local_root_path:
+                result["rootPath"] = os.path.abspath(cfg.local_root_path)
+        except Exception:
+            pass
+
+        # directories 分页
+        if part in ("all", "dirs"):
+            dirs_page = self._page_directories(db, storage_id=storage_id, current_path=current_path, limit=lmt, cursor=_decode_cursor(cursor) if part == "dirs" else None)
+            result["directories"] = dirs_page
+
+        # files 分页
+        if part in ("all", "files"):
+            files_page = self._page_files(
+                db,
+                storage_id=storage_id,
+                dir_key=dir_key,
+                search=search,
+                file_type=file_type,
+                limit=lmt,
+                cursor=_decode_cursor(cursor) if part == "files" else None,
+                order_by=ob,
+                order_asc=od_asc,
+                current_path=current_path,
+            )
+            result["files"] = files_page
+
+        # 兼容：补充 items（旧前端/测试使用），按“目录在前，文件在后”拼接当前页
+        combined: list[dict] = []
+        if "directories" in result and part in ("all", "dirs"):
+            combined.extend(result["directories"].get("items") or [])
+        if "files" in result and part in ("all", "files"):
+            combined.extend(result["files"].get("items") or [])
+        result["items"] = combined
+
+        return create_response("获取文件列表成功", result, HTTP_STATUS_OK)
+
+    def _count_directories(self, db: Session, *, storage_id: int, current_path: str) -> int:
+        from app.packages.system.models.directory_entry import DirectoryEntry
+        from app.packages.system.crud.directory_entry import directory_entry_crud
+        prefix = current_path
+        q = (
+            directory_entry_crud
+            .query(db)
+            .filter(DirectoryEntry.storage_id == storage_id)
+            .filter(DirectoryEntry.path.like(prefix + "%"))
+            .filter(not_(DirectoryEntry.path.like(prefix + "%/%")))
+            .filter(not_(DirectoryEntry.path.like("/.thumbnails%")))
+            .filter(not_(DirectoryEntry.path.like("/thumbnails%")))
+        )
+        return q.count()
+
+    def _count_files(self, db: Session, *, storage_id: int, dir_key: str, search: Optional[str], file_type: Optional[str]) -> int:
+        from sqlalchemy import func
+        from app.packages.system.models.file_record import FileRecord
+        from app.packages.system.crud.file_record import file_record_crud
+
+        q = (
+            file_record_crud
+            .query(db)
+            .filter(FileRecord.storage_id == storage_id)
+            .filter(FileRecord.directory == ("" if dir_key == "" else dir_key))
+        )
+        if search:
+            s = f"%{search.lower()}%"
+            q = q.filter(or_(func.lower(FileRecord.alias_name).like(s), func.lower(FileRecord.original_name).like(s)))
+        if file_type and file_type != "all":
+            # 简易按扩展过滤
+            exts = {
+                "image": {"jpg", "jpeg", "png", "gif", "bmp", "svg", "tiff", "webp"},
+                "document": {"doc", "docx", "odt"},
+                "spreadsheet": {"xls", "xlsx", "ods"},
+                "pdf": {"pdf"},
+                "markdown": {"md"},
+            }.get(file_type)
+            if exts:
+                patterns = tuple(f"%.{e}" for e in exts)
+                q = q.filter(or_(*[FileRecord.alias_name.ilike(p) for p in patterns]))
+        return q.count()
+
+    def _page_directories(self, db: Session, *, storage_id: int, current_path: str, limit: int, cursor: Optional[dict]) -> dict:
+        from sqlalchemy import not_
+        from app.packages.system.models.directory_entry import DirectoryEntry
+        from app.packages.system.crud.directory_entry import directory_entry_crud
+
+        prefix = current_path
+        q = (
+            directory_entry_crud
+            .query(db)
+            .filter(DirectoryEntry.storage_id == storage_id)
+            .filter(DirectoryEntry.path.like(prefix + "%"))
+            .filter(not_(DirectoryEntry.path.like(prefix + "%/%")))
+            .filter(not_(DirectoryEntry.path.like("/.thumbnails%")))
+            .filter(not_(DirectoryEntry.path.like("/thumbnails%")))
+        )
+        # 游标：按路径名增序（不区分大小写）+ id
+        from sqlalchemy import func, and_, or_
+        sort_col = func.lower(DirectoryEntry.path)
+        if cursor and cursor.get("part") == "dirs":
+            last_key = cursor.get("k")
+            last_id = int(cursor.get("id") or 0)
+            q = q.filter(or_(sort_col > last_key, and_(sort_col == last_key, DirectoryEntry.id > last_id)))
+        q = q.order_by(sort_col.asc(), DirectoryEntry.id.asc()).limit(limit + 1)
+        rows = q.all()
+        items: list[dict] = []
+        next_cursor = None
+        has_more = False
+        if len(rows) > limit:
+            has_more = True
+            rows = rows[:limit]
+            last = rows[-1]
+            next_cursor = base64_urlsafe_encode({"part": "dirs", "k": (last.path or "").lower(), "id": last.id})
+
+        # 构造 name
+        for d in rows:
+            name = (d.path or "")[len(prefix) :].strip("/")
+            if not name:
+                continue
+            items.append({"name": name, "type": "directory", "mimeType": None, "size": 0, "lastModified": None})
+        return {"items": items, "nextCursor": next_cursor, "hasMore": has_more}
+
+    def _page_files(
+        self,
+        db: Session,
+        *,
+        storage_id: int,
+        dir_key: str,
+        search: Optional[str],
+        file_type: Optional[str],
+        limit: int,
+        cursor: Optional[dict],
+        order_by: str,
+        order_asc: bool,
+        current_path: str,
+    ) -> dict:
+        from sqlalchemy import func, and_, or_
+        from app.packages.system.models.file_record import FileRecord
+        from app.packages.system.crud.file_record import file_record_crud
+
+        q = (
+            file_record_crud
+            .query(db)
+            .filter(FileRecord.storage_id == storage_id)
+            .filter(FileRecord.directory == ("" if dir_key == "" else dir_key))
+        )
+        if search:
+            s = f"%{search.lower()}%"
+            q = q.filter(or_(func.lower(FileRecord.alias_name).like(s), func.lower(FileRecord.original_name).like(s)))
+        if file_type and file_type != "all":
+            exts = {
+                "image": {"jpg", "jpeg", "png", "gif", "bmp", "svg", "tiff", "webp"},
+                "document": {"doc", "docx", "odt"},
+                "spreadsheet": {"xls", "xlsx", "ods"},
+                "pdf": {"pdf"},
+                "markdown": {"md"},
+            }.get(file_type)
+            if exts:
+                patterns = tuple(f"%.{e}" for e in exts)
+                q = q.filter(or_(*[FileRecord.alias_name.ilike(p) for p in patterns]))
+
+        # 排序 + 游标
+        if order_by == "size":
+            sort_col = FileRecord.size_bytes
+        elif order_by == "time":
+            sort_col = FileRecord.update_time
+        else:
+            sort_col = func.lower(FileRecord.alias_name)
+
+        if cursor and cursor.get("part") == "files" and cursor.get("ob") == order_by and cursor.get("od") == ("asc" if order_asc else "desc"):
+            last_key = cursor.get("k")
+            last_id = int(cursor.get("id") or 0)
+            if order_asc:
+                q = q.filter(or_(sort_col > last_key, and_(sort_col == last_key, FileRecord.id > last_id)))
+            else:
+                q = q.filter(or_(sort_col < last_key, and_(sort_col == last_key, FileRecord.id < last_id)))
+
+        q = q.order_by((sort_col.asc() if order_asc else sort_col.desc()), (FileRecord.id.asc() if order_asc else FileRecord.id.desc())).limit(limit + 1)
+        rows = q.all()
+
+        items: list[dict] = []
+        next_cursor = None
+        has_more = False
+        if len(rows) > limit:
+            has_more = True
+            last = rows[limit - 1]
+            next_cursor = base64_urlsafe_encode({
+                "part": "files",
+                "ob": order_by,
+                "od": "asc" if order_asc else "desc",
+                "k": (getattr(last, "size_bytes", None) if order_by == "size" else (getattr(last, "update_time", None) if order_by == "time" else (last.alias_name or last.original_name or "")).lower()),
+                "id": last.id,
+            })
+            rows = rows[:limit]
+
+        for r in rows:
+            name = r.alias_name or r.original_name
+            file_item = {
+                "name": name,
+                "type": "file",
+                "mimeType": r.mime_type,
+                "size": int(r.size_bytes or 0),
+                "lastModified": (getattr(r, "update_time", None) or getattr(r, "create_time", None)).isoformat() if getattr(r, "create_time", None) else None,
+                "previewUrl": f"/api/v1/files/preview?storageId={storage_id}&path={current_path}{name}",
+            }
+            mime_lc = (r.mime_type or "").lower()
+            if mime_lc.startswith("image/"):
+                file_item["thumbnailUrl"] = f"/api/v1/files/thumbnail?storageId={storage_id}&path={current_path}{name}&w=256"
+            items.append(file_item)
+
+        return {"items": items, "nextCursor": next_cursor, "hasMore": has_more}
+
+
+# 简单的 base64 urlsafe 编码/解码（避免重复导入）
+def base64_urlsafe_encode(obj: dict) -> str:
+    import base64, json
+    return base64.urlsafe_b64encode(json.dumps(obj, default=str).encode("utf-8")).decode("ascii")
 
     # ----------------------------
     # 同步：对象存储/本地目录 -> 数据库 file_records

@@ -55,7 +55,8 @@
 
 1) 本地虚拟环境
 ```bash
-python3 -m venv .venv
+# 建议Python 3.11.13
+python -m venv .venv 
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.development .env   # 可按需修改数据库、Redis、JWT、端口、时区等
