@@ -47,6 +47,7 @@ def init_db() -> None:
     session = db_session.SessionLocal()
     try:
         _seed_core_entities(session)
+        _seed_default_monitor_rules(session)
         _seed_default_storage_if_needed(session)
         _seed_dictionaries_from_sql_if_needed(session)
         session.commit()
@@ -69,7 +70,7 @@ def _seed_core_entities(db: Session) -> None:
         .first()
     )
     if organization is None:
-        organization = Organization(name=DEFAULT_ORGANIZATION_NAME)
+        organization = Organization(name=DEFAULT_ORGANIZATION_NAME, created_by=1)
         db.add(organization)
         db.flush()
 
@@ -84,6 +85,8 @@ def _seed_core_entities(db: Session) -> None:
             role_key=RoleEnum.ADMIN.value,
             status=RoleStatusEnum.NORMAL.value,
             sort_order=1,
+            created_by=1,
+            organization_id=organization.id if organization else None,
         )
         db.add(admin_role)
         db.flush()
@@ -91,6 +94,24 @@ def _seed_core_entities(db: Session) -> None:
         admin_role.role_key = admin_role.role_key or RoleEnum.ADMIN.value
         admin_role.status = admin_role.status or RoleStatusEnum.NORMAL.value
         db.add(admin_role)
+
+    # 确保默认用户角色存在
+    user_role = (
+        db.query(Role)
+        .filter(Role.name == RoleEnum.USER.value, Role.is_deleted.is_(False))
+        .first()
+    )
+    if user_role is None:
+        user_role = Role(
+            name=RoleEnum.USER.value,
+            role_key=RoleEnum.USER.value,
+            status=RoleStatusEnum.NORMAL.value,
+            sort_order=2,
+            created_by=1,
+            organization_id=organization.id if organization else None,
+        )
+        db.add(user_role)
+        db.flush()
 
     admin_user = (
         db.query(User)
@@ -105,6 +126,7 @@ def _seed_core_entities(db: Session) -> None:
             status=UserStatusEnum.NORMAL.value,
             is_active=True,
             organization_id=organization.id if organization else None,
+            created_by=1,
         )
         db.add(admin_user)
         db.flush()
@@ -120,9 +142,49 @@ def _seed_core_entities(db: Session) -> None:
         if admin_user.status is None:
             admin_user.status = UserStatusEnum.NORMAL.value
         admin_user.is_active = True
+        if not getattr(admin_user, "created_by", None):
+            admin_user.created_by = 1
         db.add(admin_user)
 
     # 字典相关的默认数据从 SQL 脚本注入，不在此处维护。
+
+
+def _seed_default_monitor_rules(db: Session) -> None:
+    """确保关键的监听规则存在（例如对日志接口本身的禁用规则）。"""
+    from app.packages.system.models.log import OperationLogMonitorRule
+
+    existing = (
+        db.query(OperationLogMonitorRule)
+        .filter(
+            OperationLogMonitorRule.request_uri == "/api/v1/logs/operations",
+            OperationLogMonitorRule.http_method == "ALL",
+            OperationLogMonitorRule.match_mode == "prefix",
+            OperationLogMonitorRule.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if existing is None:
+        from app.packages.system.models.organization import Organization
+        from app.packages.system.core.constants import DEFAULT_ORGANIZATION_NAME
+
+        org_id = (
+            db.query(Organization.id)
+            .filter(Organization.name == DEFAULT_ORGANIZATION_NAME)
+            .scalar()
+        )
+        rule = OperationLogMonitorRule(
+            name="接口调用日志列表",
+            request_uri="/api/v1/logs/operations",
+            http_method="ALL",
+            match_mode="prefix",
+            is_enabled=False,
+            description="获取接口调用的日志列表",
+            operation_type_code="query",
+            created_by=1,
+            organization_id=org_id or 1,
+        )
+        db.add(rule)
+        db.flush()
 
 
 def _seed_default_storage_if_needed(db: Session) -> None:
@@ -140,6 +202,8 @@ def _seed_default_storage_if_needed(db: Session) -> None:
             name="本地存储 (默认)",
             type="LOCAL",
             local_root_path=local_root,
+            created_by=1,
+            organization_id=organization_id if (organization_id := (db.query(Organization.id).filter(Organization.name == DEFAULT_ORGANIZATION_NAME).scalar())) else None,
         )
         db.add(cfg)
         db.flush()
@@ -215,6 +279,13 @@ def _seed_dictionaries_from_sql_if_needed(db: Session) -> None:
 
     # 1) 字典类型
     type_blocks = _extract_block(sql_text, "dictionary_types")
+    # 获取默认组织 ID 兜底
+    default_org_id = None
+    try:
+        default_org_id = db.query(Organization.id).filter(Organization.name == DEFAULT_ORGANIZATION_NAME).scalar()
+    except Exception:
+        default_org_id = None
+
     for block in type_blocks:
         for type_code, display_name, description, sort_order in _parse_tuple_values(block):
             existing = (
@@ -229,6 +300,8 @@ def _seed_dictionaries_from_sql_if_needed(db: Session) -> None:
                         display_name=display_name,
                         description=description,
                         sort_order=sort_order,
+                        created_by=1,
+                        organization_id=default_org_id or 1,
                     )
                 )
     # 确保上面的新增被持久化，后续查询可见
@@ -263,8 +336,8 @@ def _seed_dictionaries_from_sql_if_needed(db: Session) -> None:
                 continue
             insert_sql = text(
                 """
-                INSERT INTO dictionary_entries (type_code, label, value, description, sort_order, create_time, update_time, is_deleted)
-                VALUES (:type_code, :label, :value, :description, :sort_order, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                INSERT INTO dictionary_entries (type_code, label, value, description, sort_order, created_by, organization_id, create_time, update_time, is_deleted)
+                VALUES (:type_code, :label, :value, :description, :sort_order, :created_by, :organization_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
                 """
             )
             db.execute(
@@ -275,5 +348,7 @@ def _seed_dictionaries_from_sql_if_needed(db: Session) -> None:
                     "value": value,
                     "description": description,
                     "sort_order": sort_order_int,
+                    "created_by": 1,
+                    "organization_id": default_org_id or 1,
                 },
             )

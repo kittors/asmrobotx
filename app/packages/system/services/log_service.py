@@ -22,6 +22,8 @@ from app.packages.system.core.constants import (
 from app.packages.system.core.responses import create_response
 from app.packages.system.core.timezone import format_datetime
 from app.packages.system.crud.logs import login_log_crud, operation_log_crud
+from app.packages.system.core.constants import DEFAULT_ORGANIZATION_NAME
+from app.packages.system.models.organization import Organization
 from app.packages.system.crud.operation_log_monitor_rules import operation_log_monitor_rule_crud
 from app.packages.system.models.log import LoginLog, OperationLog, OperationLogMonitorRule
 
@@ -247,7 +249,19 @@ class LogService:
             return None
 
         serial = log_number or self.generate_operation_number()
-        obj = operation_log_crud.create(db, payload | {"log_number": serial})
+        # 补齐 required 字段
+        enriched = payload | {"log_number": serial}
+        if "created_by" not in enriched or enriched["created_by"] is None:
+            enriched["created_by"] = 1
+        if "organization_id" not in enriched or enriched["organization_id"] is None:
+            org_id_row = (
+                db.query(Organization.id)
+                .filter(Organization.name == DEFAULT_ORGANIZATION_NAME)
+                .first()
+            )
+            if org_id_row is not None:
+                enriched["organization_id"] = org_id_row[0] if not isinstance(org_id_row, Organization) else org_id_row.id
+        obj = operation_log_crud.create(db, enriched)
         return obj
 
     def record_login_log(
@@ -258,7 +272,20 @@ class LogService:
         visit_number: Optional[str] = None,
     ) -> LoginLog:
         serial = visit_number or self.generate_visit_number()
-        obj = login_log_crud.create(db, payload | {"visit_number": serial})
+        enriched = payload | {"visit_number": serial}
+        if "created_by" not in enriched or enriched["created_by"] is None:
+            # 如果提供了用户对象则优先记录为该用户
+            user_obj = payload.get("_user_obj") if isinstance(payload, dict) else None
+            enriched["created_by"] = getattr(user_obj, "id", None) or 1
+        if "organization_id" not in enriched or enriched["organization_id"] is None:
+            org_id_row = (
+                db.query(Organization.id)
+                .filter(Organization.name == DEFAULT_ORGANIZATION_NAME)
+                .first()
+            )
+            if org_id_row is not None:
+                enriched["organization_id"] = org_id_row[0] if not isinstance(org_id_row, Organization) else org_id_row.id
+        obj = login_log_crud.create(db, enriched)
         return obj
 
     # ------------------------------------------------------------------

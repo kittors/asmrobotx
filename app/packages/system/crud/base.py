@@ -3,7 +3,9 @@
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 
 from sqlalchemy.orm import Session
-from app.packages.system.core.datascope import apply_data_scope, scope_defaults_for_create
+from app.core.datascope import apply_data_scope, scope_defaults_for_create
+from app.packages.system.core.constants import DEFAULT_ORGANIZATION_NAME
+from app.packages.system.models.organization import Organization
 
 from app.packages.system.models.base import Base
 
@@ -28,6 +30,28 @@ class CRUDBase(Generic[ModelType]):
         # 自动附加数据域默认字段（若模型包含且调用方未显式赋值）
         defaults = scope_defaults_for_create(self.model)
         payload = {**defaults, **obj_in}
+
+        # 强制补齐必填字段：若仍缺失，使用“admin(1)/默认组织(研发部)”作为兜底
+        if hasattr(self.model, "created_by") and payload.get("created_by") is None:
+            payload["created_by"] = 1
+        if hasattr(self.model, "organization_id") and payload.get("organization_id") is None:
+            org_id = None
+            try:
+                row = (
+                    db.query(Organization.id)
+                    .filter(Organization.name == DEFAULT_ORGANIZATION_NAME)
+                    .first()
+                )
+                if row:
+                    org_id = row[0] if not isinstance(row, Organization) else row.id
+            except Exception:
+                org_id = None
+            if org_id is None:
+                # 如果默认组织不存在，明确报错，避免写入不合法数据
+                raise ValueError(
+                    "organization_id is required but missing; default organization not found"
+                )
+            payload["organization_id"] = org_id
         db_obj = self.model(**payload)
         db.add(db_obj)
         db.commit()

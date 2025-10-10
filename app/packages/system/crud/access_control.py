@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.packages.system.crud.base import CRUDBase
 from app.packages.system.models.access_control import AccessControlItem
+from app.packages.system.models.base import role_access_controls
 
 
 class CRUDAccessControl(CRUDBase[AccessControlItem]):
@@ -40,6 +41,23 @@ class CRUDAccessControl(CRUDBase[AccessControlItem]):
         if not id_set:
             return []
         query = self.query(db).filter(self.model.id.in_(id_set))
+        return query.all()
+
+    def list_permitted_by_roles(self, db: Session, role_ids: Iterable[int]) -> List[AccessControlItem]:
+        """按角色集合返回其被授权的访问控制项（未删除）。"""
+        ids = {int(x) for x in role_ids if x is not None}
+        if not ids:
+            return []
+        # 直接 join 关联表，避免从 Role 实体再取
+        query = (
+            self.query(db)
+            .join(
+                role_access_controls,
+                self.model.id == role_access_controls.c.access_control_id,
+            )
+            .filter(role_access_controls.c.role_id.in_(ids))
+            .distinct()
+        )
         return query.all()
 
 

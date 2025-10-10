@@ -31,6 +31,8 @@ from app.packages.system.models.user import User
 from app.packages.system.services.log_service import log_service
 from app.packages.system.core.session import create_session, delete_session
 from app.packages.system.core.config import get_settings
+from app.packages.system.core.constants import DEFAULT_ORGANIZATION_NAME
+from app.packages.system.models.organization import Organization
 
 
 class AuthService:
@@ -128,11 +130,19 @@ class AuthService:
 
     def _create_default_role(self, db: Session) -> Role:
         """在默认角色缺失时动态创建，确保注册流程可继续。"""
+        # 兜底使用默认组织，创建人为 admin(1)
+        org_id = (
+            db.query(Organization.id)
+            .filter(Organization.name == DEFAULT_ORGANIZATION_NAME)
+            .scalar()
+        )
         role = Role(
             name=RoleEnum.USER.value,
             role_key=RoleEnum.USER.value,
             status=RoleStatusEnum.NORMAL.value,
             sort_order=2,
+            created_by=1,
+            organization_id=org_id or 1,
         )
         db.add(role)
         db.commit()

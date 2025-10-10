@@ -140,7 +140,7 @@ class UserService:
 
         normalized_status = self._normalize_status(status or UserStatusEnum.NORMAL.value)
         roles = self._load_roles(db, role_ids) or []
-        organization = self._load_organization(db, organization_id)
+        organization = self._load_organization(db, organization_id) if organization_id is not None else None
         normalized_nickname = self._normalize_optional_text(nickname)
         normalized_remark = self._normalize_optional_text(remark)
 
@@ -184,7 +184,8 @@ class UserService:
         user.status = normalized_status
         user.is_active = normalized_status == UserStatusEnum.NORMAL.value
         user.remark = normalized_remark
-        user.organization_id = organization.id if organization else None
+        if organization is not None:
+            user.organization_id = organization.id
         if roles is not None:
             user.roles = roles
 

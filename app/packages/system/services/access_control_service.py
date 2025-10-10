@@ -19,6 +19,7 @@ from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.responses import create_response
 from app.packages.system.crud.access_control import access_control_crud
 from app.packages.system.models.access_control import AccessControlItem
+from app.core.datascope import get_scope
 
 
 class AccessControlService:
@@ -143,28 +144,74 @@ class AccessControlService:
         return create_response("获取访问控制列表成功", tree, HTTP_STATUS_OK)
 
     def get_routers(self, db: Session) -> dict[str, Any]:
-        """构建前端动态路由所需的菜单结构。"""
+        """根据“组织+角色”筛选访问菜单，构建前端动态路由。
 
-        items = access_control_crud.list_all(db)
-        menus = [
-            item
-            for item in items
-            if self._normalize_type_value(item.type) == AccessControlTypeEnum.MENU.value
-            and self._is_enabled(item.enabled_status)
-        ]
+        - 管理员（admin 角色）返回所有启用的菜单；
+        - 非管理员：仅返回本角色有权访问的菜单及其必要的父节点；
+        - 隐藏/禁用按节点自身的 enabled/hidden 规则处理；
+        - 仅输出 type=menu 的节点作为路由；按钮不入路由。
+        """
 
+        scope = get_scope()
+        is_admin = scope.is_admin
+        role_ids = scope.role_ids
+
+        # 全量加载一次，用于构建树与回溯父级
+        all_items = access_control_crud.list_all(db)
+        if not all_items:
+            return create_response("获取路由成功", [], HTTP_STATUS_OK)
+
+        # 计算允许的节点集合
+        if is_admin:
+            allowed: set[int] = {item.id for item in all_items}
+        else:
+            permitted = access_control_crud.list_permitted_by_roles(db, role_ids)
+            allowed = {item.id for item in permitted}
+
+        if not allowed:
+            return create_response("获取路由成功", [], HTTP_STATUS_OK)
+
+        # 构造 parent -> children map（仅菜单、且启用的节点参与）
+        def is_menu_enabled(node: AccessControlItem) -> bool:
+            return (
+                self._normalize_type_value(node.type) == AccessControlTypeEnum.MENU.value
+                and self._is_enabled(node.enabled_status)
+            )
+
+        menus = [item for item in all_items if is_menu_enabled(item)]
         if not menus:
             return create_response("获取路由成功", [], HTTP_STATUS_OK)
 
         children_map: Dict[Optional[int], List[AccessControlItem]] = defaultdict(list)
-        for menu in menus:
-            parent_key = menu.parent_id or None
-            children_map[parent_key].append(menu)
+        by_id: Dict[int, AccessControlItem] = {item.id: item for item in menus}
+        for item in menus:
+            parent_key = item.parent_id or None
+            children_map[parent_key].append(item)
 
         for siblings in children_map.values():
             siblings.sort(key=lambda node: (node.sort_order, node.id))
 
-        roots = children_map.get(None, [])
+        # 允许的菜单：自身在 allowed 或其任一后代在 allowed（回溯祖先）
+        include_map: Dict[int, bool] = {}
+
+        def has_allowed_descendant(node: AccessControlItem) -> bool:
+            for child in children_map.get(node.id, []):
+                if include_node(child):
+                    return True
+            return False
+
+        def include_node(node: AccessControlItem) -> bool:
+            if node.id in include_map:
+                return include_map[node.id]
+            include_self = node.id in allowed
+            include_children = has_allowed_descendant(node)
+            include_map[node.id] = include_self or include_children
+            return include_map[node.id]
+
+        roots = [node for node in children_map.get(None, []) if include_node(node)]
+        if not roots:
+            return create_response("获取路由成功", [], HTTP_STATUS_OK)
+
         payload = [self._serialize_router_node(root, children_map, None) for root in roots]
         return create_response("获取路由成功", payload, HTTP_STATUS_OK)
 

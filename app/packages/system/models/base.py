@@ -11,6 +11,7 @@
 """
 
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import Boolean, Column, DateTime, Integer, MetaData, Table, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -61,12 +62,18 @@ class SoftDeleteMixin:
 
 # 记录创建人（用户 ID）。注意：允许为 NULL，以兼容系统脚本或历史数据。
 class CreatedByMixin:
-    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # 记录创建人（强制必填，默认 1=admin）
+    created_by: Mapped[int] = mapped_column(
+        Integer, nullable=False, index=True, server_default=expression.text("1")
+    )
 
 
 # 记录归属组织（组织 ID）。注意：允许为 NULL，以支持全局记录或历史数据。
 class OrganizationOwnedMixin:
-    organization_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # 记录归属组织（强制必填，默认 1=研发部）
+    organization_id: Mapped[int] = mapped_column(
+        Integer, nullable=False, index=True, server_default=expression.text("1")
+    )
 
 
 # 多对多关系表：增加审计字段，便于追踪是谁在何时创建了关联；

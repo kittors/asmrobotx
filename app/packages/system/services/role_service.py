@@ -26,7 +26,9 @@ from app.packages.system.core.timezone import format_datetime
 from app.packages.system.crud.access_control import access_control_crud
 from app.packages.system.crud.roles import role_crud
 from app.packages.system.models.role import Role
-from app.packages.system.core.datascope import get_scope
+from app.core.datascope import get_scope
+from app.packages.system.core.constants import DEFAULT_ORGANIZATION_NAME
+from app.packages.system.models.organization import Organization
 
 
 class RoleService:
@@ -102,11 +104,17 @@ class RoleService:
             status=normalized_status,
             remark=(remark.strip() if remark and remark.strip() else None),
         )
-        # 归属组织与创建人（若上下文可用）
-        if hasattr(role, "organization_id") and scope.organization_id is not None:
-            role.organization_id = scope.organization_id
-        if hasattr(role, "created_by") and scope.user_id is not None:
-            role.created_by = scope.user_id
+        # 归属组织与创建人（若上下文可用，否则兜底 admin/默认组织）
+        if hasattr(role, "organization_id"):
+            if scope.organization_id is not None:
+                role.organization_id = scope.organization_id
+            else:
+                row = db.query(Organization.id).filter(Organization.name == DEFAULT_ORGANIZATION_NAME).first()
+                if row is None:
+                    raise AppException("默认组织不存在", HTTP_STATUS_BAD_REQUEST)
+                role.organization_id = row[0] if not isinstance(row, Organization) else row.id
+        if hasattr(role, "created_by"):
+            role.created_by = scope.user_id if scope.user_id is not None else 1
         role.access_controls = permissions
         db.add(role)
         db.commit()

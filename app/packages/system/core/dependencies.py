@@ -16,8 +16,6 @@ from app.packages.system.core.security import (
     create_access_token,
 )
 from app.packages.system.core.session import touch_session
-from app.packages.system.core.datascope import set_scope as set_data_scope
-from app.packages.system.core.constants import ADMIN_ROLE
 from app.packages.system.crud.users import user_crud
 from app.packages.system.db.session import SessionLocal
 from app.packages.system.models.user import User
@@ -69,19 +67,6 @@ def get_current_user(
 
     # 记录会话 ID 以便后续使用（例如退出登录）
     store_current_session_id(session_id)
-
-    # 写入数据域上下文，供 CRUD 查询与创建时自动加上组织/创建人信息
-    try:
-        # 判定是否管理员（按角色名，保持轻量，不阻断请求）
-        is_admin = False
-        try:
-            is_admin = any((role.name or "").lower() == ADMIN_ROLE for role in getattr(user, "roles", []))
-        except Exception:
-            is_admin = False
-        set_data_scope(user_id=user.id, organization_id=getattr(user, "organization_id", None), is_admin=is_admin)
-    except Exception:
-        # 不影响主流程
-        pass
 
     # 为滑动会话生成一个新的访问令牌，并通过上下文在响应阶段附带返回。
     # 客户端可以选择忽略该 Token（当前实现服务端并不强制令牌轮换）。

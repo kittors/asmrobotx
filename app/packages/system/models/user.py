@@ -24,7 +24,7 @@ class User(CreatedByMixin, TimestampMixin, SoftDeleteMixin, Base):
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     nickname: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    organization_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    organization_id: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default=UserStatusEnum.NORMAL.value, index=True)
     remark: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

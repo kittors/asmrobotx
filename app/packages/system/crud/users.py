@@ -9,7 +9,9 @@ from app.packages.system.core.enums import UserStatusEnum
 from app.packages.system.crud.base import CRUDBase
 from app.packages.system.models.role import Role
 from app.packages.system.models.user import User
-from app.packages.system.core.datascope import get_scope
+from app.core.datascope import get_scope
+from app.packages.system.core.constants import DEFAULT_ORGANIZATION_NAME
+from app.packages.system.models.organization import Organization
 
 
 class CRUDUser(CRUDBase[User]):
@@ -90,6 +92,12 @@ class CRUDUser(CRUDBase[User]):
         # 默认组织：优先使用显式传入；否则回落到当前数据域
         scope = get_scope()
         effective_org_id = organization_id if organization_id is not None else scope.organization_id
+        if effective_org_id is None:
+            # 兜底使用默认组织
+            row = db.query(Organization.id).filter(Organization.name == DEFAULT_ORGANIZATION_NAME).first()
+            if row is None:
+                raise ValueError("organization_id is required when creating user")
+            effective_org_id = row[0] if not isinstance(row, Organization) else row.id
 
         user = User(
             username=username,
@@ -101,8 +109,8 @@ class CRUDUser(CRUDBase[User]):
             is_active=effective_active,
         )
         # 记录创建人（若处于认证上下文）
-        if hasattr(user, "created_by") and scope.user_id is not None:
-            user.created_by = scope.user_id
+        if hasattr(user, "created_by"):
+            user.created_by = scope.user_id if scope.user_id is not None else 1
         user.roles = roles
         db.add(user)
         db.commit()
