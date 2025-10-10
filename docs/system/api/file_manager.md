@@ -138,12 +138,12 @@
 ```
 
 ### POST /files/sync
-从对象存储/本地目录扫描并将文件元数据同步进数据库表 `file_records`。
+从对象存储/本地目录扫描并将文件与目录元数据同步进数据库（文件：`file_records`，目录：`directory_entries`）。
 
 查询：`storageId`, `path=/`（扫描起点）
 
-- 只写入“文件”记录，目录不单独入库；
-- 若记录已存在（以 `directory + alias_name` 判定），则更新 `size_bytes/mime_type`；
+- 会写入“文件记录”和“目录记录”（目录用于在 DB 列表中展示空目录）；
+- 文件若已存在（以 `directory + alias_name` 判定），则更新 `size_bytes/mime_type`；
 - LOCAL 与 S3 均支持递归扫描；S3 为安全考虑每层仅抓取第一页（200 条）后递归，极大目录可能需多次操作。
 
 响应（示例）：

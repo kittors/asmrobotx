@@ -104,6 +104,20 @@ class FileService:
                 .with_entities(FileRecord.directory)
                 .distinct()
             )
+            # 目录表中的路径，同样参与集合
+            try:
+                from app.packages.system.models.directory_entry import DirectoryEntry
+                from app.packages.system.crud.directory_entry import directory_entry_crud
+                q_dir_entries = (
+                    directory_entry_crud
+                    .query(db)
+                    .filter(DirectoryEntry.storage_id == storage_id)
+                    .filter(DirectoryEntry.path.like(prefix + "%"))
+                    .with_entities(DirectoryEntry.path)
+                    .distinct()
+                )
+            except Exception:
+                q_dir_entries = []
             child_names: set[str] = set()
             for (d,) in q_dirs:  # each row is a tuple (directory,)
                 d = d or ""  # 防御：None/""
@@ -118,6 +132,25 @@ class FileService:
                 if search_lower and search_lower not in name.lower():
                     continue
                 child_names.add(name)
+
+            # 合并目录表中的路径
+            try:
+                for (p,) in q_dir_entries:  # each row is (path,)
+                    p = p or ""
+                    if not p:
+                        continue
+                    # 目录表 path 存储不带末尾 '/'
+                    if not (p + "/").startswith(prefix):
+                        continue
+                    rel = (p + "/")[len(prefix) :]
+                    name = rel.split("/", 1)[0].strip()
+                    if not name:
+                        continue
+                    if search_lower and search_lower not in name.lower():
+                        continue
+                    child_names.add(name)
+            except Exception:
+                pass
 
             for name in sorted(child_names, key=lambda s: s.lower()):
                 items.append(
@@ -182,8 +215,8 @@ class FileService:
         """扫描指定存储与路径下的文件，并将元数据同步到表 `file_records`。
 
         说明：
-        - 仅写入“文件”记录；目录不入库；
-        - 若记录已存在（以 directory+alias_name 判定），则更新 size/mime；
+        - 写入“文件记录”和“目录记录”（目录以 directory_entries 存储）；
+        - 文件若已存在（以 directory+alias_name 判定），则更新 size/mime；
         - 仅遍历单层目录并递归深入，S3 由于后端 list 限制为第一页，极大目录可能无法一次性完整同步。
         """
 
@@ -211,6 +244,24 @@ class FileService:
             _, dir_key = _norm_dir(cur_display)
             for it in data.get("items", []):
                 if it.get("type") == "directory":
+                    # 记录目录条目（不含末尾'/')
+                    try:
+                        from app.packages.system.crud.directory_entry import directory_entry_crud
+                        from app.packages.system.models.directory_entry import DirectoryEntry
+                        dir_path = f"{cur_display}{it['name']}"
+                        if dir_path.endswith("/"):
+                            dir_path = dir_path.rstrip("/")
+                        if dir_path and directory_entry_crud.get_by_path(db, storage_id=storage_id, path=dir_path) is None:
+                            directory_entry_crud.create(
+                                db,
+                                {
+                                    "storage_id": storage_id,
+                                    "path": dir_path,
+                                },
+                            )
+                    except Exception:
+                        # 目录表写入失败不影响继续扫描
+                        pass
                     _walk(f"{cur_display}{it['name']}")
                 elif it.get("type") == "file":
                     scanned += 1
