@@ -393,7 +393,73 @@ class FileService:
 
     def delete(self, db: Session, *, storage_id: int, paths: List[str]) -> Dict[str, Any]:
         backend = self._get_backend(db, storage_id=storage_id)
-        return backend.delete(paths=paths)
+        resp = backend.delete(paths=paths)
+
+        # 同步数据库：软删除对应的文件记录与目录记录
+        from app.packages.system.crud.file_record import file_record_crud
+        from app.packages.system.models.file_record import FileRecord
+        from app.packages.system.crud.directory_entry import directory_entry_crud
+        from app.packages.system.models.directory_entry import DirectoryEntry
+
+        def _norm(p: str) -> str:
+            s = (p or "/").strip()
+            if not s.startswith("/"):
+                s = "/" + s
+            return s
+
+        for raw in (paths or []):
+            p = _norm(raw)
+            # 尝试按“文件”删除：/a/b.txt -> dir=/a, name=b.txt
+            parent = p.rsplit("/", 1)[0]
+            name = p.rsplit("/", 1)[1] if "/" in p else p
+            # 规范化父目录键（不以'/'结尾；根目录为 ""）
+            dir_key = parent.rstrip("/")
+            if dir_key == "/":
+                dir_key = ""
+
+            # 1) 文件记录：严格匹配 directory + alias_name
+            try:
+                q = (
+                    file_record_crud
+                    .query(db)
+                    .filter(FileRecord.storage_id == storage_id)
+                    .filter(FileRecord.directory == dir_key)
+                    .filter(FileRecord.alias_name == name)
+                )
+                for row in q.all():
+                    file_record_crud.soft_delete(db, row)
+            except Exception:
+                pass
+
+            # 2) 目录记录：若 raw 表示目录或存在同名目录，按前缀软删
+            # 无法可靠判断传入是否目录，这里统一按目录前缀尝试一次（对单文件不会命中）
+            try:
+                # p_norm 用于目录匹配：不以'/'结尾
+                p_norm = p.rstrip("/")
+                if p_norm and p_norm != "/":
+                    # directory_entries 路径前缀匹配
+                    q_dirs = (
+                        directory_entry_crud
+                        .query(db)
+                        .filter(DirectoryEntry.storage_id == storage_id)
+                        .filter((DirectoryEntry.path == p_norm) | (DirectoryEntry.path.like(p_norm + "/%")))
+                    )
+                    for d in q_dirs.all():
+                        directory_entry_crud.soft_delete(db, d)
+
+                    # file_records 目录前缀匹配（当前目录及其子目录）
+                    q_files = (
+                        file_record_crud
+                        .query(db)
+                        .filter(FileRecord.storage_id == storage_id)
+                        .filter((FileRecord.directory == p_norm) | (FileRecord.directory.like(p_norm + "/%")))
+                    )
+                    for fr in q_files.all():
+                        file_record_crud.soft_delete(db, fr)
+            except Exception:
+                pass
+
+        return resp
 
 
 file_service = FileService()

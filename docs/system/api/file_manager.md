@@ -92,6 +92,13 @@
 
 请求体同 POST /storage-configs。
 
+- LOCAL：检查目标目录可达。
+- S3：优先执行 `HeadBucket` 检查桶与凭证的匹配性；若底层不支持则退化到按 `path_prefix` 做一次轻量列表。
+- 常见 403 AccessDenied：多由权限策略缺少 `ListBucket/HeadBucket` 或桶名/区域/Endpoint 错配导致。
+  - 七牛 Kodo 等 S3 兼容服务建议使用带连字符的 Endpoint，例如 `s3-cn-south-1.qiniucs.com`；
+  - `path_prefix` 不能为空或仅为 `/`，应为形如 `project/` 的前缀；
+  - 若仅授予 Put/Get 权限而无 List 权限，测试可能失败，但上传/下载仍可能可用；此时使用“同步”功能会失败（因需列举）。
+
 响应：`{"success": true|false}`（在 `data` 下）。当 `acl_type=public/custom` 且提供了 `custom_domain` 时，下载/预览接口会返回直链重定向；当 `acl_type=private` 时，返回预签名 URL 重定向。
 
 ---

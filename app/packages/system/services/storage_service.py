@@ -101,16 +101,28 @@ class StorageService:
                 acl_type=normalized.get("acl_type"),
             )
             # 做一次最轻量的探测
-            if normalized["type"].upper() == "LOCAL":
+            t = normalized["type"].upper()
+            if t == "LOCAL":
                 # 目录可达即可
                 _ = backend.list(path="/")
-            else:
-                # S3 尝试列目录
-                _ = backend.list(path="/")
+            else:  # S3
+                # 优先使用 HeadBucket，避免因缺少 ListBucket 权限导致误报
+                # 说明：部分对象存储（如七牛 Kodo）常见最小权限策略仅授予 Put/Get 而不授予 List
+                client = getattr(backend, "_client", None)
+                bucket = getattr(backend, "bucket", None)
+                if client and bucket:
+                    client.head_bucket(Bucket=bucket)
+                else:
+                    # 兜底：若无法访问底层 client，则用最小列表探测
+                    _ = backend.list(path="/")
         except AppException as exc:
             return create_response("连接失败：" + str(exc), {"success": False}, HTTP_STATUS_OK)
         except Exception as exc:
-            return create_response("连接失败：" + str(exc), {"success": False}, HTTP_STATUS_OK)
+            # 常见 403 AccessDenied：多由权限策略缺少 ListBucket/HeadBucket 或桶名/区域/Endpoint 错配导致
+            msg = str(exc)
+            if "AccessDenied" in msg or "Access Denied" in msg:
+                msg += "。请检查：1) AccessKey 是否对该 Bucket 具备 head_bucket/list 权限；2) Bucket/Region/Endpoint 是否匹配；3) 在七牛 Kodo 等 S3 兼容服务上建议使用形如 s3-<region>.qiniucs.com 的 Endpoint；4) path_prefix 不要为空或仅为 '/'."
+            return create_response("连接失败：" + msg, {"success": False}, HTTP_STATUS_OK)
         return create_response("连接测试成功", {"success": True}, HTTP_STATUS_OK)
 
     # ----------------------------

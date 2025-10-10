@@ -180,8 +180,14 @@ class LocalBackend(StorageBackend):
 
     def upload(self, *, path: str, files: List[Tuple[str, bytes]]) -> list[dict]:
         target_dir = self._resolve(path or "")
-        if not target_dir.exists() or not target_dir.is_dir():
-            raise AppException("上传目标目录不存在", HTTP_STATUS_NOT_FOUND)
+        # 若目标目录不存在则自动创建（保持与 S3 前缀语义一致，提升易用性）
+        if not target_dir.exists():
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as exc:
+                raise AppException("上传目标目录不存在", HTTP_STATUS_NOT_FOUND) from exc
+        if not target_dir.is_dir():
+            raise AppException("目标路径必须为文件夹", HTTP_STATUS_BAD_REQUEST)
 
         results: list[dict] = []
         for filename, content in files:
