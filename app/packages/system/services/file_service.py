@@ -376,8 +376,43 @@ class FileService:
     # 目录与文件变更
     # ----------------------------
     def mkdir(self, db: Session, *, storage_id: int, parent: str, name: str) -> Dict[str, Any]:
+        """创建文件夹，并将目录写入数据库 directory_entries。"""
         backend = self._get_backend(db, storage_id=storage_id)
-        return backend.mkdir(parent=parent, name=name)
+        resp = backend.mkdir(parent=parent, name=name)
+
+        # 将新建目录写入 DB，便于严格读库的列表立即感知
+        try:
+            folder_name: Optional[str] = None
+            if isinstance(resp, dict):
+                data = resp.get("data") or {}
+                if isinstance(data, dict):
+                    folder_name = data.get("folder_name")
+            if folder_name:
+                # 规范化父路径 -> 构造绝对目录路径（不以 '/' 结尾）
+                par = (parent or "/").strip() or "/"
+                if not par.startswith("/"):
+                    par = "/" + par
+                if not par.endswith("/"):
+                    par = par + "/"
+                full_path = (par + folder_name).rstrip("/")
+                from app.packages.system.crud.directory_entry import directory_entry_crud
+                from app.packages.system.models.directory_entry import DirectoryEntry
+
+                # 若已存在则忽略；否则创建
+                existing = (
+                    directory_entry_crud
+                    .query(db)
+                    .filter(DirectoryEntry.storage_id == storage_id)
+                    .filter(DirectoryEntry.path == full_path)
+                    .first()
+                )
+                if existing is None:
+                    directory_entry_crud.create(db, {"storage_id": storage_id, "path": full_path})
+        except Exception:
+            # DB 写入失败不影响主流程
+            pass
+
+        return resp
 
     def rename(self, db: Session, *, storage_id: int, old_path: str, new_path: str) -> Dict[str, Any]:
         backend = self._get_backend(db, storage_id=storage_id)
