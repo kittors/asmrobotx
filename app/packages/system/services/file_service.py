@@ -416,15 +416,32 @@ class FileService:
 
     def rename(self, db: Session, *, storage_id: int, old_path: str, new_path: str) -> Dict[str, Any]:
         backend = self._get_backend(db, storage_id=storage_id)
-        return backend.rename(old_path=old_path, new_path=new_path)
+        resp = backend.rename(old_path=old_path, new_path=new_path)
+
+        # 同步数据库：文件/目录重命名
+        try:
+            self._sync_rename_in_db(db, storage_id=storage_id, old_path=old_path, new_path=new_path)
+        except Exception:
+            pass
+        return resp
 
     def move(self, db: Session, *, storage_id: int, source_paths: List[str], destination_path: str) -> Dict[str, Any]:
         backend = self._get_backend(db, storage_id=storage_id)
-        return backend.move(source_paths=source_paths, destination_path=destination_path)
+        resp = backend.move(source_paths=source_paths, destination_path=destination_path)
+        try:
+            self._sync_move_in_db(db, storage_id=storage_id, source_paths=source_paths, destination_path=destination_path)
+        except Exception:
+            pass
+        return resp
 
     def copy(self, db: Session, *, storage_id: int, source_paths: List[str], destination_path: str) -> Dict[str, Any]:
         backend = self._get_backend(db, storage_id=storage_id)
-        return backend.copy(source_paths=source_paths, destination_path=destination_path)
+        resp = backend.copy(source_paths=source_paths, destination_path=destination_path)
+        try:
+            self._sync_copy_in_db(db, storage_id=storage_id, source_paths=source_paths, destination_path=destination_path)
+        except Exception:
+            pass
+        return resp
 
     def delete(self, db: Session, *, storage_id: int, paths: List[str]) -> Dict[str, Any]:
         backend = self._get_backend(db, storage_id=storage_id)
@@ -495,6 +512,225 @@ class FileService:
                 pass
 
         return resp
+
+    # ----------------------------
+    # 内部：DB 同步辅助
+    # ----------------------------
+    def _norm_abs_path(self, p: str) -> str:
+        s = (p or "/").strip() or "/"
+        if not s.startswith("/"):
+            s = "/" + s
+        # 保留传入的尾部斜杠语义到下游逻辑判断
+        return s
+
+    def _norm_dir_key(self, p: str) -> str:
+        # 目录键：不以'/'结尾，根目录为空字符串
+        s = self._norm_abs_path(p)
+        s = s.rstrip("/")
+        return "" if s == "/" else s
+
+    def _ensure_dir_entry(self, db: Session, *, storage_id: int, dir_path: str) -> None:
+        # dir_path: 绝对路径，不以'/'结尾
+        from app.packages.system.crud.directory_entry import directory_entry_crud
+        from app.packages.system.models.directory_entry import DirectoryEntry
+        key = dir_path.rstrip("/")
+        if key == "/":
+            return
+        existing = (
+            directory_entry_crud
+            .query(db)
+            .filter(DirectoryEntry.storage_id == storage_id)
+            .filter(DirectoryEntry.path == key)
+            .first()
+        )
+        if existing is None:
+            directory_entry_crud.create(db, {"storage_id": storage_id, "path": key})
+
+    def _sync_rename_in_db(self, db: Session, *, storage_id: int, old_path: str, new_path: str) -> None:
+        # 重命名 = 目录/文件从 old_path -> new_path
+        old_abs = self._norm_abs_path(old_path)
+        new_abs = self._norm_abs_path(new_path)
+        # 目录情形：以'/'结尾或真实目录 -> 以前缀整体替换
+        is_dir = old_abs.endswith("/") or new_abs.endswith("/")
+        if is_dir:
+            src_dir = old_abs.rstrip("/")
+            dst_dir = new_abs.rstrip("/")
+            self._ensure_dir_entry(db, storage_id=storage_id, dir_path=dst_dir)
+            self._replace_dir_prefix(db, storage_id, src_dir, dst_dir)
+        else:
+            # 文件重命名：更新单条记录的 directory/alias_name
+            from app.packages.system.crud.file_record import file_record_crud
+            from app.packages.system.models.file_record import FileRecord
+            src_parent = old_abs.rsplit("/", 1)[0]
+            src_name = old_abs.rsplit("/", 1)[1]
+            dst_parent = new_abs.rsplit("/", 1)[0]
+            dst_name = new_abs.rsplit("/", 1)[1]
+            q = (
+                file_record_crud
+                .query(db)
+                .filter(FileRecord.storage_id == storage_id)
+                .filter(FileRecord.directory == self._norm_dir_key(src_parent))
+                .filter(FileRecord.alias_name == src_name)
+            )
+            for row in q.all():
+                row.directory = self._norm_dir_key(dst_parent)
+                row.alias_name = dst_name
+                file_record_crud.save(db, row)
+            # 确保目标父目录存在于目录表
+            self._ensure_dir_entry(db, storage_id=storage_id, dir_path=self._norm_dir_key(dst_parent) or "/")
+
+    def _replace_dir_prefix(self, db: Session, storage_id: int, src_dir: str, dst_dir: str) -> None:
+        # 将所有以 src_dir 为前缀的目录和文件目录替换为 dst_dir
+        from app.packages.system.crud.directory_entry import directory_entry_crud
+        from app.packages.system.models.directory_entry import DirectoryEntry
+        from app.packages.system.crud.file_record import file_record_crud
+        from app.packages.system.models.file_record import FileRecord
+
+        prefix = src_dir
+        if not prefix:
+            return
+        def _replace(path: str) -> str:
+            if path == prefix:
+                return dst_dir
+            if path.startswith(prefix + "/"):
+                return dst_dir + path[len(prefix):]
+            return path
+
+        # 目录表
+        q_dirs = (
+            directory_entry_crud
+            .query(db)
+            .filter(DirectoryEntry.storage_id == storage_id)
+            .filter((DirectoryEntry.path == prefix) | (DirectoryEntry.path.like(prefix + "/%")))
+        )
+        for d in q_dirs.all():
+            d.path = _replace(d.path)
+            directory_entry_crud.save(db, d)
+        # 文件表
+        q_files = (
+            file_record_crud
+            .query(db)
+            .filter(FileRecord.storage_id == storage_id)
+            .filter((FileRecord.directory == prefix) | (FileRecord.directory.like(prefix + "/%")))
+        )
+        for f in q_files.all():
+            f.directory = _replace(f.directory)
+            file_record_crud.save(db, f)
+
+    def _sync_move_in_db(self, db: Session, *, storage_id: int, source_paths: List[str], destination_path: str) -> None:
+        dst_base = self._norm_abs_path(destination_path).rstrip("/")
+        for spath in (source_paths or []):
+            src_abs = self._norm_abs_path(spath)
+            base_name = src_abs.rstrip("/").rsplit("/", 1)[-1]
+            # 目录移动
+            if src_abs.endswith("/"):
+                src_dir = src_abs.rstrip("/")
+                dst_dir = f"{dst_base}/{base_name}"
+                self._ensure_dir_entry(db, storage_id=storage_id, dir_path=dst_dir)
+                self._replace_dir_prefix(db, storage_id, src_dir, dst_dir)
+            else:
+                # 文件移动：更新单条文件的 directory
+                from app.packages.system.crud.file_record import file_record_crud
+                from app.packages.system.models.file_record import FileRecord
+                src_parent = src_abs.rsplit("/", 1)[0]
+                name = src_abs.rsplit("/", 1)[1]
+                dst_parent = dst_base
+                self._ensure_dir_entry(db, storage_id=storage_id, dir_path=dst_parent)
+                q = (
+                    file_record_crud
+                    .query(db)
+                    .filter(FileRecord.storage_id == storage_id)
+                    .filter(FileRecord.directory == self._norm_dir_key(src_parent))
+                    .filter(FileRecord.alias_name == name)
+                )
+                for row in q.all():
+                    row.directory = self._norm_dir_key(dst_parent)
+                    file_record_crud.save(db, row)
+
+    def _sync_copy_in_db(self, db: Session, *, storage_id: int, source_paths: List[str], destination_path: str) -> None:
+        from app.packages.system.crud.file_record import file_record_crud
+        from app.packages.system.models.file_record import FileRecord
+        from app.packages.system.crud.directory_entry import directory_entry_crud
+        from app.packages.system.models.directory_entry import DirectoryEntry
+
+        dst_base = self._norm_abs_path(destination_path).rstrip("/")
+        for spath in (source_paths or []):
+            src_abs = self._norm_abs_path(spath)
+            base_name = src_abs.rstrip("/").rsplit("/", 1)[-1]
+            if src_abs.endswith("/"):
+                # 目录复制：复制目录表项和文件记录（前缀替换）
+                src_dir = src_abs.rstrip("/")
+                dst_dir = f"{dst_base}/{base_name}"
+                self._ensure_dir_entry(db, storage_id=storage_id, dir_path=dst_dir)
+
+                # 复制目录表
+                q_dirs = (
+                    directory_entry_crud
+                    .query(db)
+                    .filter(DirectoryEntry.storage_id == storage_id)
+                    .filter((DirectoryEntry.path == src_dir) | (DirectoryEntry.path.like(src_dir + "/%")))
+                )
+                for d in q_dirs.all():
+                    suffix = d.path[len(src_dir):]
+                    new_path = (dst_dir + suffix).rstrip("/")
+                    if not (
+                        directory_entry_crud
+                        .query(db)
+                        .filter(DirectoryEntry.storage_id == storage_id)
+                        .filter(DirectoryEntry.path == new_path)
+                        .first()
+                    ):
+                        directory_entry_crud.create(db, {"storage_id": storage_id, "path": new_path})
+
+                # 复制文件表
+                q_files = (
+                    file_record_crud
+                    .query(db)
+                    .filter(FileRecord.storage_id == storage_id)
+                    .filter((FileRecord.directory == src_dir) | (FileRecord.directory.like(src_dir + "/%")))
+                )
+                for f in q_files.all():
+                    suffix = f.directory[len(src_dir):]
+                    new_dir = (dst_dir + suffix).rstrip("/")
+                    # 创建副本记录
+                    file_record_crud.create(
+                        db,
+                        {
+                            "storage_id": storage_id,
+                            "directory": new_dir,
+                            "original_name": f.original_name,
+                            "alias_name": f.alias_name,
+                            "purpose": f.purpose,
+                            "size_bytes": f.size_bytes,
+                            "mime_type": f.mime_type,
+                        },
+                    )
+            else:
+                # 文件复制：复制单条记录至目标目录
+                src_parent = src_abs.rsplit("/", 1)[0]
+                name = src_abs.rsplit("/", 1)[1]
+                self._ensure_dir_entry(db, storage_id=storage_id, dir_path=dst_base)
+                row = (
+                    file_record_crud
+                    .query(db)
+                    .filter(FileRecord.storage_id == storage_id)
+                    .filter(FileRecord.directory == self._norm_dir_key(src_parent))
+                    .filter(FileRecord.alias_name == name)
+                    .first()
+                )
+                if row is not None:
+                    file_record_crud.create(
+                        db,
+                        {
+                            "storage_id": storage_id,
+                            "directory": self._norm_dir_key(dst_base),
+                            "original_name": row.original_name,
+                            "alias_name": row.alias_name,
+                            "purpose": row.purpose,
+                            "size_bytes": row.size_bytes,
+                            "mime_type": row.mime_type,
+                        },
+                    )
 
 
 file_service = FileService()
