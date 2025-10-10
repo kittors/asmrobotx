@@ -49,6 +49,45 @@ def list_items(
     return file_service.list_items(db, storage_id=storage_id, path=path, file_type=file_type, search=search)
 
 
+@router.post("/files/sync", response_model=FilesMutationResponse)
+def sync_db_from_storage(
+    request: Request,
+    storage_id: int = Query(..., alias="storageId"),
+    path: Optional[str] = Query("/"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """从对象存储/本地目录扫描并同步文件元数据到数据库。
+
+    仅影响数据库记录，不会改动实际存储；可配合前端“同步”按钮使用。
+    """
+    started_at = tz_now()
+    status = "success"
+    error_message: Optional[str] = None
+    resp: Optional[Any] = None
+
+    try:
+        resp = file_service.sync_records(db, storage_id=storage_id, path=path)
+        return resp
+    except Exception as exc:
+        status = "failure"
+        error_message = str(exc)
+        raise
+    finally:
+        _record_operation_log(
+            db=db,
+            request=request,
+            current_user=current_user,
+            business_type="other",
+            class_method="app.packages.system.api.v1.endpoints.files.sync_db_from_storage",
+            request_body={"storage_id": storage_id, "path": path},
+            response_body=_summarize_response(resp),
+            status=status,
+            error_message=error_message,
+            started_at=started_at,
+        )
+
+
 @router.post("/files", response_model=FilesMutationResponse)
 async def upload_files(
     request: Request,

@@ -91,6 +91,24 @@ class Settings(BaseSettings):
     app_port: int = Field(default=8000, alias="APP_PORT")
     timezone: str = Field(default="Asia/Shanghai", alias="TIMEZONE")
 
+    # 数据隔离策略配置
+    data_scope_default_enabled: bool = Field(default=True, alias="DATA_SCOPE_DEFAULT_ENABLED")
+    data_scope_bypass_prefixes_raw: str = Field(
+        default=(
+            "/api/v1/access-controls,"
+            "/api/v1/auth,"
+            "/api/v1/users,"
+            "/api/v1/roles,"
+            "/api/v1/logs,"
+            "/api/v1/dictionaries,"
+            "/api/v1/storage-configs,"
+            "/api/v1/files,"
+            "/api/v1/organizations"
+        ),
+        alias="DATA_SCOPE_BYPASS_PREFIXES",
+    )
+    data_scope_enforce_prefixes_raw: str = Field(default="", alias="DATA_SCOPE_ENFORCE_PREFIXES")
+
     model_config = SettingsConfigDict(extra='ignore')
 
     @property
@@ -129,6 +147,19 @@ class Settings(BaseSettings):
             return ZoneInfo(self.timezone)
         except ZoneInfoNotFoundError:
             return ZoneInfo("UTC")
+
+    # -------------------
+    # 数据隔离策略帮助方法
+    # -------------------
+    @property
+    def data_scope_bypass_prefixes(self) -> list[str]:
+        raw = (self.data_scope_bypass_prefixes_raw or "").strip()
+        return [item.strip() for item in raw.split(",") if item.strip()]
+
+    @property
+    def data_scope_enforce_prefixes(self) -> list[str]:
+        raw = (self.data_scope_enforce_prefixes_raw or "").strip()
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 @lru_cache

@@ -26,21 +26,24 @@ class DataScope:
     role_ids: tuple[int, ...]
     user_id: Optional[int] = None  # 审计用，不做数据隔离
     is_admin: bool = False
+    # 是否启用数据隔离（组织/角色）
+    isolation_enabled: bool = True
 
 
 _scope_ctx: ContextVar[DataScope] = ContextVar(
     "data_scope",
-    default=DataScope(organization_id=None, role_ids=(), user_id=None, is_admin=False),
+    default=DataScope(organization_id=None, role_ids=(), user_id=None, is_admin=False, isolation_enabled=True),
 )
 
 
-def set_scope(*, organization_id: Optional[int], role_ids: list[int] | tuple[int, ...], user_id: Optional[int] = None, is_admin: bool = False) -> None:
+def set_scope(*, organization_id: Optional[int], role_ids: list[int] | tuple[int, ...], user_id: Optional[int] = None, is_admin: bool = False, isolation_enabled: bool = True) -> None:
     _scope_ctx.set(
         DataScope(
             organization_id=organization_id,
             role_ids=tuple(int(x) for x in (role_ids or ())),
             user_id=user_id,
             is_admin=is_admin,
+            isolation_enabled=isolation_enabled,
         )
     )
 
@@ -57,6 +60,10 @@ def apply_data_scope(query: Query, model: Any) -> Query:
     - 若当前请求未带组织/角色信息，则不追加对应过滤。
     """
     scope = get_scope()
+
+    # 全局关闭（例如通过路由策略关闭）或管理员：不追加任何数据域过滤
+    if not getattr(scope, "isolation_enabled", True):
+        return query
 
     # 管理员跨组织/角色查看数据：若当前用户具备 admin 角色，则不做任何数据域过滤。
     # 说明：这与业务侧“管理员拥有全部权限”的预期一致，也能修复登录 admin

@@ -310,6 +310,16 @@ class LocalBackend(StorageBackend):
             src = self._resolve(spath)
             if not src.exists():
                 raise AppException(f"源路径不存在: {spath}", HTTP_STATUS_NOT_FOUND)
+            # 防御性校验：不允许将目录移动到其自身或其子目录中
+            # 示例：/a/dir 移动到 /a/dir/sub/ 将导致无穷递归或不可预期行为
+            if src.is_dir():
+                try:
+                    # 如果目标目录在源目录之内，则 relative_to 不会抛出异常
+                    dst_dir.resolve().relative_to(src.resolve())
+                    raise AppException("不能将目录移动到其自身或其子目录内", HTTP_STATUS_BAD_REQUEST)
+                except ValueError:
+                    # 不在其内 -> 合法
+                    pass
             dst = dst_dir / src.name
             if dst.exists():
                 raise AppException(f"目标已存在: {dst.name}", HTTP_STATUS_BAD_REQUEST)
@@ -333,18 +343,34 @@ class LocalBackend(StorageBackend):
             src = self._resolve(spath)
             if not src.exists():
                 raise AppException(f"源路径不存在: {spath}", HTTP_STATUS_NOT_FOUND)
+            # 防御性校验：不允许将目录复制到其自身或其子目录中
+            if src.is_dir():
+                try:
+                    dst_dir.resolve().relative_to(src.resolve())
+                    raise AppException("不能将目录复制到其自身或其子目录内", HTTP_STATUS_BAD_REQUEST)
+                except ValueError:
+                    pass
             dst = dst_dir / src.name
             if dst.exists():
                 raise AppException(f"目标已存在: {dst.name}", HTTP_STATUS_BAD_REQUEST)
             if src.is_dir():
-                shutil.copytree(src, dst)
+                try:
+                    shutil.copytree(src, dst)
+                except (OSError, shutil.Error) as exc:
+                    # 统一转换为业务异常，避免 500。常见如文件名过长、递归复制导致的错误
+                    logger.exception("Local copy failed: %s", exc)
+                    raise AppException("复制失败：目标路径不合法或文件名过长", HTTP_STATUS_BAD_REQUEST) from exc
                 self._append_dir_event(
                     action="copy",
                     path_old=self._rel(src, ensure_trailing_slash=True),
                     path_new=self._rel(dst, ensure_trailing_slash=True),
                 )
             else:
-                shutil.copy2(src, dst)
+                try:
+                    shutil.copy2(src, dst)
+                except (OSError, shutil.Error) as exc:
+                    logger.exception("Local copy failed: %s", exc)
+                    raise AppException("复制失败：文件不可读或目标不可写", HTTP_STATUS_BAD_REQUEST) from exc
         return create_response("文件/文件夹复制成功", None, HTTP_STATUS_OK)
 
     def delete(self, *, paths: List[str]) -> dict:
@@ -658,6 +684,11 @@ class S3Backend(StorageBackend):
         for spath in source_paths:
             src_key = self._join_key(spath)
             base_name = os.path.basename(spath.strip("/"))
+            # 防御性校验：不允许将目录移动到其自身或其子目录中
+            if src_key.endswith("/"):
+                target_prefix = f"{dst_prefix}{base_name}/"
+                if target_prefix.startswith(src_key):
+                    raise AppException("不能将目录移动到其自身或其子目录内", HTTP_STATUS_BAD_REQUEST)
             if src_key.endswith("/"):
                 self._move_copy_prefix(src_key, dst_prefix + base_name + "/", delete_source=True)
             else:
@@ -676,6 +707,11 @@ class S3Backend(StorageBackend):
         for spath in source_paths:
             src_key = self._join_key(spath)
             base_name = os.path.basename(spath.strip("/"))
+            # 防御性校验：不允许将目录复制到其自身或其子目录中
+            if src_key.endswith("/"):
+                target_prefix = f"{dst_prefix}{base_name}/"
+                if target_prefix.startswith(src_key):
+                    raise AppException("不能将目录复制到其自身或其子目录内", HTTP_STATUS_BAD_REQUEST)
             if src_key.endswith("/"):
                 self._move_copy_prefix(src_key, dst_prefix + base_name + "/", delete_source=False)
             else:

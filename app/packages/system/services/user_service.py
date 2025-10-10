@@ -17,7 +17,9 @@ from app.packages.system.core.constants import (
     HTTP_STATUS_CONFLICT,
     HTTP_STATUS_NOT_FOUND,
     HTTP_STATUS_OK,
+    HTTP_STATUS_FORBIDDEN,
 )
+from app.packages.system.core.guards import forbid_if_admin_user
 from app.packages.system.core.enums import UserStatusEnum
 from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.responses import create_response
@@ -177,8 +179,13 @@ class UserService:
         user = user_crud.get(db, user_id)
         if user is None:
             raise AppException("用户不存在或已删除", HTTP_STATUS_NOT_FOUND)
+        # 系统内置管理员账户禁止修改（包含昵称、状态、角色、组织、备注等）
+        forbid_if_admin_user(user, message="系统内置管理员不允许修改")
 
         normalized_status = self._normalize_status(status or user.status)
+        # 系统内置管理员禁止停用（冗余保护，尽管上方已禁止任何修改）
+        if (user.username or "").strip().lower() == DEFAULT_ADMIN_USERNAME and normalized_status == UserStatusEnum.DISABLED.value:
+            raise AppException("系统内置管理员不允许停用", HTTP_STATUS_FORBIDDEN)
         roles = self._load_roles(db, role_ids)
         organization = self._load_organization(db, organization_id)
         normalized_nickname = self._normalize_optional_text(nickname)

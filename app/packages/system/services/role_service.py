@@ -31,6 +31,11 @@ from app.packages.system.models.role import Role
 from app.core.datascope import get_scope
 from app.packages.system.core.constants import DEFAULT_ORGANIZATION_NAME
 from app.packages.system.models.organization import Organization
+from app.packages.system.core.guards import (
+    forbid_if_admin_role,
+    forbid_if_admin_role_tokens,
+    is_admin_role,
+)
 
 
 class RoleService:
@@ -95,8 +100,7 @@ class RoleService:
         permission_ids: Optional[Iterable[int]] = None,
     ) -> dict:
         # 禁止创建名称或权限字符为 admin 的角色（系统保留）
-        if name.strip().lower() == ADMIN_ROLE or role_key.strip().lower() == ADMIN_ROLE:
-            raise AppException("不允许创建系统保留角色（admin）", HTTP_STATUS_FORBIDDEN)
+        forbid_if_admin_role_tokens(name, role_key, message="不允许创建系统保留角色（admin）")
 
         self._assert_unique_constraints(db, name=name, role_key=role_key)
         normalized_status = self._normalize_status(status)
@@ -169,7 +173,7 @@ class RoleService:
         if role is None:
             raise AppException("角色不存在或已删除", HTTP_STATUS_NOT_FOUND)
         # 禁止删除系统内置角色：名称为 admin/user 或权限字符为 admin
-        if (role.name or "").lower() in {ADMIN_ROLE, DEFAULT_USER_ROLE} or (role.role_key or "").lower() == ADMIN_ROLE:
+        if (role.name or "").strip().lower() in {ADMIN_ROLE, DEFAULT_USER_ROLE} or (role.role_key or "").strip().lower() == ADMIN_ROLE:
             raise AppException("系统内置角色不允许删除", HTTP_STATUS_FORBIDDEN)
         if role.users:
             raise AppException("存在关联用户，无法删除该角色", HTTP_STATUS_BAD_REQUEST)
@@ -183,12 +187,29 @@ class RoleService:
             raise AppException("角色不存在或已删除", HTTP_STATUS_NOT_FOUND)
 
         normalized_status = self._normalize_status(status)
+        # 管理员角色禁止停用（按名称/权限字符判断，大小写不敏感）
+        if is_admin_role(role) and normalized_status == RoleStatusEnum.DISABLED.value:
+            raise AppException("管理员角色不允许停用", HTTP_STATUS_FORBIDDEN)
         role.status = normalized_status
         db.add(role)
         db.commit()
         db.refresh(role)
         data = self._serialize_role_detail(role)
         return create_response("更新角色状态成功", data, HTTP_STATUS_OK)
+
+    def get_assigned_organization_ids(self, db: Session, *, role_id: int) -> dict:
+        role = role_crud.get(db, role_id)
+        if role is None:
+            raise AppException("角色不存在或已删除", HTTP_STATUS_NOT_FOUND)
+        # 管理员角色：数据权限默认为“全部组织”
+        if is_admin_role(role):
+            ids = [org.id for org in organization_crud.list_all(db)]
+            payload = {"role_id": role.id, "organization_ids": ids}
+            return create_response("获取角色数据权限成功", payload, HTTP_STATUS_OK)
+        # 非管理员：按已分配组织返回
+        org_ids = sorted({org.id for org in getattr(role, "organizations", [])})
+        payload = {"role_id": role.id, "organization_ids": org_ids}
+        return create_response("获取角色数据权限成功", payload, HTTP_STATUS_OK)
 
     def export(
         self,
@@ -288,6 +309,10 @@ class RoleService:
         role = role_crud.get(db, role_id)
         if role is None:
             raise AppException("角色不存在或已删除", HTTP_STATUS_NOT_FOUND)
+        if is_admin_role(role):
+            ids = [org.id for org in organization_crud.list_all(db)]
+            payload = {"role_id": role.id, "organization_ids": ids}
+            return create_response("获取角色数据权限成功", payload, HTTP_STATUS_OK)
         org_ids = sorted({org.id for org in getattr(role, "organizations", [])})
         payload = {"role_id": role.id, "organization_ids": org_ids}
         return create_response("获取角色数据权限成功", payload, HTTP_STATUS_OK)
@@ -296,6 +321,8 @@ class RoleService:
         role = role_crud.get(db, role_id)
         if role is None:
             raise AppException("角色不存在或已删除", HTTP_STATUS_NOT_FOUND)
+        # 管理员角色的数据权限不可修改（固定为全选）
+        forbid_if_admin_role(role, message="管理员角色不允许修改数据权限")
         requested = []
         seen: set[int] = set()
         for item in (int(x) for x in organization_ids or []):

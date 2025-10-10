@@ -52,42 +52,215 @@ class FileService:
         file_type: Optional[str] = None,
         search: Optional[str] = None,
     ) -> Dict[str, Any]:
-        backend = self._get_backend(db, storage_id=storage_id)
-        data = backend.list(path=path or "/", file_type=file_type, search=search)
-        # 追加 previewUrl 便于前端点击预览
-        items = []
-        for item in data.get("items", []):
-            # 字段名转换为前端文档的 camelCase
-            converted = {
-                "name": item.get("name"),
-                "type": item.get("type"),
-                "mimeType": item.get("mime_type"),
-                "size": item.get("size"),
-                "lastModified": item.get("last_modified"),
-            }
-            if item.get("type") == "file":
-                preview_url = f"/api/v1/files/preview?storageId={storage_id}&path={(data['current_path'] or '/')}{item['name']}"
-                converted["previewUrl"] = preview_url
-            items.append(converted)
-        current_path = data.get("current_path", "/")
-        root_path: Optional[str] = None
-        # 若为本地存储，额外返回根目录的绝对路径（currentPath 仍保持相对路径样式）
-        try:
-            from app.packages.system.crud.storage_config import storage_config_crud
+        """严格基于数据库返回文件列表。
 
+        - 仅从表 `file_records` 读取，不触达对象存储或本地文件系统；
+        - `fileType` 仅影响“文件”项的过滤；当提供且不为 `all` 时，不返回目录；
+        - `search` 同时匹配目录名与文件名（original/alias）。
+        """
+
+        # 延迟导入，避免循环依赖
+        from app.packages.system.models.file_record import FileRecord
+        from app.packages.system.crud.file_record import file_record_crud
+        from app.packages.system.crud.storage_config import storage_config_crud
+
+        # 统一归一化：展示用 current_path 始终以 '/' 结尾；查询用 dir_key 不以 '/' 结尾（根目录为空字符串）
+        raw_path = (path or "/").strip() or "/"
+        if not raw_path.startswith("/"):
+            raw_path = "/" + raw_path
+        current_path = raw_path if raw_path.endswith("/") else (raw_path + "/")
+        dir_key = raw_path.rstrip("/")  # root -> ""
+
+        # 过滤器准备
+        search_lower = (search or "").strip().lower()
+
+        def _is_allowed_type(name: str) -> bool:
+            if not file_type or file_type == "all":
+                return True
+            ext = os.path.splitext(name)[1].lower().lstrip(".")
+            groups = {
+                "image": {"jpg", "jpeg", "png", "gif", "bmp", "svg", "tiff", "webp"},
+                "document": {"doc", "docx", "odt"},
+                "spreadsheet": {"xls", "xlsx", "ods"},
+                "pdf": {"pdf"},
+                "markdown": {"md"},
+            }
+            allowed = groups.get(file_type)
+            return True if allowed is None else (ext in allowed)
+
+        items: list[dict] = []
+
+        # 1) 目录（仅当 file_type 未限定为某类文件时返回）
+        if not file_type or file_type == "all":
+            # 取出以当前路径为前缀的所有目录，提取“直接子目录”名
+            # 注意：FileRecord.directory 不包含尾部 '/'，根目录存空字符串
+            prefix = (dir_key + "/") if dir_key else "/"
+            # 仅取目录字段，去重
+            q_dirs = (
+                file_record_crud
+                .query(db)
+                .filter(FileRecord.storage_id == storage_id)
+                .filter(FileRecord.directory.like(prefix + "%"))
+                .with_entities(FileRecord.directory)
+                .distinct()
+            )
+            child_names: set[str] = set()
+            for (d,) in q_dirs:  # each row is a tuple (directory,)
+                d = d or ""  # 防御：None/""
+                # 必须以 prefix 起始才是子路径
+                if not (d + "/").startswith(prefix):
+                    continue
+                # 取出 prefix 之后的第一段作为“直接子目录”
+                rel = (d + "/")[len(prefix) :]  # 始终有末尾 '/'
+                name = rel.split("/", 1)[0].strip()
+                if not name:
+                    continue
+                if search_lower and search_lower not in name.lower():
+                    continue
+                child_names.add(name)
+
+            for name in sorted(child_names, key=lambda s: s.lower()):
+                items.append(
+                    {
+                        "name": name,
+                        "type": "directory",
+                        "mimeType": None,
+                        "size": 0,
+                        "lastModified": None,
+                    }
+                )
+
+        # 2) 当前目录下的文件
+        q_files_base = (
+            file_record_crud
+            .query(db)
+            .filter(FileRecord.storage_id == storage_id)
+        )
+        if dir_key == "":
+            q_files = q_files_base.filter(FileRecord.directory == "")
+        else:
+            q_files = q_files_base.filter(FileRecord.directory == dir_key)
+        # search 同时匹配 original_name 与 alias_name
+        rows = q_files.all()
+        for r in rows:
+            name = r.alias_name or r.original_name
+            if search_lower:
+                hay = f"{(r.original_name or '').lower()}\n{(r.alias_name or '').lower()}"
+                if search_lower not in hay:
+                    continue
+            if not _is_allowed_type(name):
+                continue
+            items.append(
+                {
+                    "name": name,
+                    "type": "file",
+                    "mimeType": r.mime_type,
+                    "size": int(r.size_bytes or 0),
+                    "lastModified": (getattr(r, "update_time", None) or getattr(r, "create_time", None)).isoformat() if getattr(r, "create_time", None) else None,
+                    "previewUrl": f"/api/v1/files/preview?storageId={storage_id}&path={current_path}{name}",
+                }
+            )
+
+        # 若为本地存储，额外返回根目录绝对路径（currentPath 仍保持相对路径样式）
+        root_path: Optional[str] = None
+        try:
             cfg = storage_config_crud.get(db, storage_id)
             if cfg and (cfg.type or "").upper() == "LOCAL" and cfg.local_root_path:
                 root_path = os.path.abspath(cfg.local_root_path)
         except Exception:
             pass
 
-        payload = {
-            "currentPath": current_path,
-            "items": items,
-        }
+        payload = {"currentPath": current_path, "items": items}
         if root_path:
             payload["rootPath"] = root_path
         return create_response("获取文件列表成功", payload, HTTP_STATUS_OK)
+
+    # ----------------------------
+    # 同步：对象存储/本地目录 -> 数据库 file_records
+    # ----------------------------
+    def sync_records(self, db: Session, *, storage_id: int, path: Optional[str] = "/") -> Dict[str, Any]:
+        """扫描指定存储与路径下的文件，并将元数据同步到表 `file_records`。
+
+        说明：
+        - 仅写入“文件”记录；目录不入库；
+        - 若记录已存在（以 directory+alias_name 判定），则更新 size/mime；
+        - 仅遍历单层目录并递归深入，S3 由于后端 list 限制为第一页，极大目录可能无法一次性完整同步。
+        """
+
+        from app.packages.system.models.file_record import FileRecord
+        from app.packages.system.crud.file_record import file_record_crud
+
+        backend = self._get_backend(db, storage_id=storage_id)
+
+        def _norm_dir(p: str) -> tuple[str, str]:
+            raw = (p or "/").strip() or "/"
+            if not raw.startswith("/"):
+                raw = "/" + raw
+            cur = raw if raw.endswith("/") else (raw + "/")
+            key = raw.rstrip("/")
+            return cur, key
+
+        scanned = 0
+        inserted = 0
+        updated = 0
+
+        def _walk(cur_path: str) -> None:
+            nonlocal scanned, inserted, updated
+            data = backend.list(path=cur_path, file_type=None, search=None)
+            cur_display = data.get("current_path") or (cur_path if cur_path.endswith("/") else (cur_path + "/"))
+            _, dir_key = _norm_dir(cur_display)
+            for it in data.get("items", []):
+                if it.get("type") == "directory":
+                    _walk(f"{cur_display}{it['name']}")
+                elif it.get("type") == "file":
+                    scanned += 1
+                    name = it.get("name")
+                    size = int(it.get("size") or 0)
+                    mime = it.get("mime_type")
+                    # 查询是否存在
+                    existing = (
+                        file_record_crud
+                        .query(db)
+                        .filter(FileRecord.storage_id == storage_id)
+                        .filter(FileRecord.directory == dir_key)
+                        .filter(FileRecord.alias_name == name)
+                        .first()
+                    )
+                    if existing is None:
+                        file_record_crud.create(
+                            db,
+                            {
+                                "storage_id": storage_id,
+                                "directory": dir_key,
+                                "original_name": name,
+                                "alias_name": name,
+                                "purpose": "general",
+                                "size_bytes": size,
+                                "mime_type": mime,
+                            },
+                        )
+                        inserted += 1
+                    else:
+                        changed = False
+                        if int(existing.size_bytes or 0) != size:
+                            existing.size_bytes = size
+                            changed = True
+                        if (existing.mime_type or None) != (mime or None):
+                            existing.mime_type = mime
+                            changed = True
+                        if changed:
+                            file_record_crud.save(db, existing)
+                            updated += 1
+
+        # 开始遍历
+        cur_display, _ = _norm_dir(path or "/")
+        _walk(cur_display)
+
+        return create_response(
+            "同步完成",
+            {"scanned": scanned, "inserted": inserted, "updated": updated},
+            HTTP_STATUS_OK,
+        )
 
     # ----------------------------
     # 上传/下载/预览

@@ -101,12 +101,13 @@
 所有接口需 `storageId` 指定存储源。
 
 ### GET /files
-列出目录内容。
+列出目录内容（严格来自数据库）。
 
 查询：`storageId`, `path=/`, `fileType=image|document|spreadsheet|pdf|markdown|all`, `search`
 
+- 数据来源：仅从表 `file_records` 读取，不访问对象存储或本地文件系统；若数据库未同步，列表可能为空；
 - 当提供 `fileType` 且不为 `all` 时：仅返回匹配类型的“文件”，目录将被隐藏；
-- 当未提供或为 `all`：返回当前目录下的目录与所有文件。
+- 当未提供或为 `all`：返回当前目录下的目录与所有文件（目录集合根据 `file_records.directory` 推导，空目录需通过“同步”后才可显示）。
 - 内部文件：对于 LOCAL 存储，系统在根目录维护的记录文件 `.dir_ops.jsonl` 为内部用途，不会出现在列表结果中。
 
 返回字段说明：
@@ -133,6 +134,24 @@
       { "name": "images", "type": "directory", "size": 0 }
     ]
   }
+}
+```
+
+### POST /files/sync
+从对象存储/本地目录扫描并将文件元数据同步进数据库表 `file_records`。
+
+查询：`storageId`, `path=/`（扫描起点）
+
+- 只写入“文件”记录，目录不单独入库；
+- 若记录已存在（以 `directory + alias_name` 判定），则更新 `size_bytes/mime_type`；
+- LOCAL 与 S3 均支持递归扫描；S3 为安全考虑每层仅抓取第一页（200 条）后递归，极大目录可能需多次操作。
+
+响应（示例）：
+```json
+{
+  "msg": "同步完成",
+  "code": 200,
+  "data": { "scanned": 123, "inserted": 120, "updated": 3 }
 }
 ```
 
@@ -260,7 +279,7 @@
   - `mime_type`: 服务器推断的 MIME 类型
   - `create_time`: 创建时间
 
-说明：目前该表仅用于后台追踪记录；如需对该表提供查询 API（按目录、按用途检索等），可按需补充接口。
+说明：文件列表接口（GET /files）基于该表返回；如需扩展按用途/时间范围等检索条件，可按需补充接口。
 
 ---
 

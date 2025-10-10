@@ -18,6 +18,28 @@ from app.packages.system.core.constants import ADMIN_ROLE, ACCESS_TOKEN_TYPE
 from app.packages.system.core.security import decode_token
 from app.packages.system.db.session import SessionLocal
 from app.packages.system.models.user import User
+from app.packages.system.core.config import get_settings
+
+
+def _should_enable_isolation(path: str, method: str) -> bool:
+    """根据配置与路由前缀判断当前请求是否启用数据隔离。
+
+    规则：
+    - 默认取 settings.data_scope_default_enabled；
+    - 若命中 bypass 前缀，则禁用；
+    - 若命中 enforce 前缀，则启用（优先生效）。
+    """
+    settings = get_settings()
+    enabled = settings.data_scope_default_enabled
+    p = path or ""
+    # enforce 优先
+    for prefix in settings.data_scope_enforce_prefixes:
+        if prefix and p.startswith(prefix):
+            return True
+    for prefix in settings.data_scope_bypass_prefixes:
+        if prefix and p.startswith(prefix):
+            return False
+    return enabled
 
 
 class DataScopeMiddleware:
@@ -29,8 +51,13 @@ class DataScopeMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # 默认空数据域
-        set_scope(organization_id=None, role_ids=(), user_id=None, is_admin=False)
+        # 数据隔离策略：根据当前请求路由计算是否启用
+        path = str(scope.get("path") or "")
+        method = str(scope.get("method") or "").upper() or "GET"
+        isolation_enabled = _should_enable_isolation(path, method)
+
+        # 默认空数据域（含隔离开关）
+        set_scope(organization_id=None, role_ids=(), user_id=None, is_admin=False, isolation_enabled=isolation_enabled)
 
         try:
             # 解析 Authorization: Bearer <token>
@@ -78,6 +105,7 @@ class DataScopeMiddleware:
                     role_ids=role_ids,
                     user_id=user.id,
                     is_admin=is_admin,
+                    isolation_enabled=isolation_enabled,
                 )
             finally:
                 db.close()
