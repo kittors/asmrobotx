@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, Awaitable
+from typing import Callable, Awaitable, Optional
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -57,7 +57,10 @@ class DataScopeMiddleware:
             # 查询用户组织与角色集合
             db = SessionLocal()
             try:
-                user: User | None = db.query(User).filter(User.id == int(user_id), User.is_deleted.is_(False)).first()
+                # Python 3.9 兼容：使用 Optional[User] 而非 `User | None`
+                user: Optional[User] = db.query(User).filter(
+                    User.id == int(user_id), User.is_deleted.is_(False)
+                ).first()
                 if user is None:
                     await self.app(scope, receive, send)
                     return

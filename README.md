@@ -141,6 +141,7 @@ TIMEZONE=Asia/Shanghai
 | POST | /api/v1/auth/logout | 退出登录 |
 | GET  | /api/v1/users/me | 当前用户信息（需认证） |
 | GET  | /api/v1/organizations | 组织机构列表 |
+| GET  | /api/v1/organizations/tree | 组织机构树 |
 | GET  | /api/v1/access-controls/routers | 动态菜单路由（需认证） |
 | GET  | /api/v1/roles/{role_id}/users | 角色已分配用户查询（需认证） |
 | PUT  | /api/v1/roles/{role_id}/users | 角色分配用户（需认证） |

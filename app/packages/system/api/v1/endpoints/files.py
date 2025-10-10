@@ -307,7 +307,8 @@ def set_clipboard(
     started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
-    resp: Optional[Response] = None
+    # create_response 返回的是 dict，这里统一用 Any 以便日志摘要函数复用
+    resp: Optional[Any] = None
 
     try:
         # 仅校验存储是否存在
@@ -327,7 +328,7 @@ def set_clipboard(
             business_type="other",
             class_method="app.packages.system.api.v1.endpoints.files.set_clipboard",
             request_body={"storage_id": storage_id, "action": payload.action, "paths": payload.paths},
-            response_body={"status_code": resp.status_code} if resp else None,
+            response_body=_summarize_response(resp),
             status=status,
             error_message=error_message,
             started_at=started_at,
@@ -352,7 +353,8 @@ def clear_clipboard(
     started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
-    resp: Optional[Response] = None
+    # 这里 resp 同样可能是 dict
+    resp: Optional[Any] = None
 
     try:
         clipboard_service.clear(current_user.id)
@@ -370,7 +372,7 @@ def clear_clipboard(
             business_type="other",
             class_method="app.packages.system.api.v1.endpoints.files.clear_clipboard",
             request_body=None,
-            response_body={"status_code": resp.status_code} if resp else None,
+            response_body=_summarize_response(resp),
             status=status,
             error_message=error_message,
             started_at=started_at,
@@ -389,7 +391,8 @@ def paste(
     started_at = tz_now()
     status = "success"
     error_message: Optional[str] = None
-    resp: Optional[Response] = None
+    # paste 返回的可能是后端字典响应或 FastAPI Response
+    resp: Optional[Any] = None
 
     try:
         clip = clipboard_service.get(current_user.id)
@@ -431,7 +434,7 @@ def paste(
                 "destination_path": destination_path,
                 "clear_after": clear_after,
             },
-            response_body={"status_code": resp.status_code} if resp else None,
+            response_body=_summarize_response(resp),
             status=status,
             error_message=error_message,
             started_at=started_at,

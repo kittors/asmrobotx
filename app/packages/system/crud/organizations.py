@@ -28,5 +28,13 @@ class CRUDOrganization(CRUDBase[Organization]):
             query = query.filter(Organization.is_deleted.is_(False))
         return query.all()
 
+    def list_all(self, db: Session) -> list[Organization]:
+        """获取全部组织，统一排序。"""
+        query = self.query(db)
+        # 若表具备 sort_order 列，则按 sort_order,id 排序
+        if hasattr(Organization, "sort_order"):
+            query = query.order_by(Organization.sort_order.asc(), Organization.id.asc())
+        return query.all()
+
 
 organization_crud = CRUDOrganization(Organization)

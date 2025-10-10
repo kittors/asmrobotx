@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 import os
+import re
 
 from app.packages.system.core.constants import (
     ADMIN_ROLE,
@@ -27,6 +28,7 @@ from app.packages.system.crud.storage_config import storage_config_crud
 from app.packages.system.models.storage import StorageConfig
 from app.packages.system.models.file_record import FileRecord  # noqa: F401 - ensure table creation in tests
 from app.packages.system.models.directory_change_record import DirectoryChangeRecord  # noqa: F401 - ensure table creation in tests
+from app.packages.system.models.access_control import AccessControlItem
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,7 @@ def init_db() -> None:
         _seed_core_entities(session)
         _seed_default_monitor_rules(session)
         _seed_default_storage_if_needed(session)
+        _seed_access_controls_from_sql_if_needed(session)
         _seed_dictionaries_from_sql_if_needed(session)
         session.commit()
     except Exception:  # pragma: no cover - initialization failures should not crash gracefully
@@ -185,6 +188,69 @@ def _seed_default_monitor_rules(db: Session) -> None:
         )
         db.add(rule)
         db.flush()
+
+
+def _seed_access_controls_from_sql_if_needed(db: Session) -> None:
+    """当访问控制表为空且使用 PostgreSQL 时，从种子 SQL 注入菜单/按钮数据。
+
+    - 仅在 `access_control_items` 表为 0 行时执行，避免覆盖用户自定义；
+    - 仅针对 PostgreSQL 执行（语句包含 `::jsonb` 与 `setval`）。
+    """
+    try:
+        if db.query(AccessControlItem).first() is not None:
+            return
+    except Exception:
+        # 表不存在等异常直接返回，由 Base.metadata.create_all 负责建表
+        return
+
+    # 仅在 PostgreSQL 下执行
+    try:
+        dialect = db.bind.dialect.name if getattr(db, "bind", None) else None
+    except Exception:
+        dialect = None
+    if dialect != "postgresql":
+        return
+
+    from pathlib import Path
+    from sqlalchemy import text
+
+    try:
+        repo_root = Path(__file__).resolve().parents[4]
+        sql_path = repo_root / "scripts" / "db" / "init" / "v1" / "data" / "001_seed_data.sql"
+        full_sql = sql_path.read_text(encoding="utf-8")
+    except Exception:
+        logger.warning("Seed SQL file not found or unreadable for access controls: %s", "scripts/db/init/v1/data/001_seed_data.sql")
+        return
+
+    # 提取整个 INSERT INTO access_control_items ... VALUES ... ON CONFLICT ...; 语句
+    insert_stmt_match = re.search(
+        r"INSERT\s+INTO\s+access_control_items\s*\([^;]+?\)\s*VALUES\s*.*?;",
+        full_sql,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not insert_stmt_match:
+        return
+    insert_stmt = insert_stmt_match.group(0)
+
+    # 提取 setval 对齐语句（若存在）
+    setval_match = re.search(
+        r"SELECT\s+setval\([^;]+\);",
+        full_sql,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    try:
+        db.execute(text(insert_stmt))
+        if setval_match:
+            db.execute(text(setval_match.group(0)))
+        db.flush()
+        logger.info("Seeded default access control items from SQL seed file")
+    except Exception:
+        # 回滚本段，避免影响后续播种
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger.warning("Failed to seed access control items from SQL seed file", exc_info=True)
 
 
 def _seed_default_storage_if_needed(db: Session) -> None:
@@ -328,8 +394,9 @@ def _seed_dictionaries_from_sql_if_needed(db: Session) -> None:
             if not type_exists:
                 continue
             # 使用方言无关的插入前查询，保证幂等
+            # PostgreSQL 布尔应使用 TRUE/FALSE，避免 boolean = integer 报错
             exists_sql = text(
-                "SELECT id FROM dictionary_entries WHERE type_code = :type_code AND value = :value AND is_deleted = 0"
+                "SELECT id FROM dictionary_entries WHERE type_code = :type_code AND value = :value AND is_deleted = FALSE"
             )
             row = db.execute(exists_sql, {"type_code": type_code, "value": value}).first()
             if row:
@@ -337,7 +404,7 @@ def _seed_dictionaries_from_sql_if_needed(db: Session) -> None:
             insert_sql = text(
                 """
                 INSERT INTO dictionary_entries (type_code, label, value, description, sort_order, created_by, organization_id, create_time, update_time, is_deleted)
-                VALUES (:type_code, :label, :value, :description, :sort_order, :created_by, :organization_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                VALUES (:type_code, :label, :value, :description, :sort_order, :created_by, :organization_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, FALSE)
                 """
             )
             db.execute(

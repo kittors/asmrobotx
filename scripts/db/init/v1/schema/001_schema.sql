@@ -2,15 +2,45 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS organizations (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
     create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
--- 增量列：组织层级与创建人
+-- 增量列：组织层级、排序与创建人
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS parent_id INTEGER;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS created_by INTEGER NOT NULL DEFAULT 1;
+-- 约束与索引
+-- 同一个父节点下，名称唯一（允许不同父节点重名）
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'organizations_name_key'
+    ) THEN
+        ALTER TABLE organizations DROP CONSTRAINT organizations_name_key;
+    END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_organizations_parent_name ON organizations(parent_id, name);
+-- 防止自引用
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ck_organizations_no_self_parent'
+    ) THEN
+        ALTER TABLE organizations
+            ADD CONSTRAINT ck_organizations_no_self_parent CHECK (parent_id IS NULL OR parent_id <> id);
+    END IF;
+END $$;
+-- 自引用外键（硬删除置空；业务使用软删除）
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_organizations_parent_id'
+    ) THEN
+        ALTER TABLE organizations
+            ADD CONSTRAINT fk_organizations_parent_id FOREIGN KEY (parent_id) REFERENCES organizations(id) ON DELETE SET NULL;
+    END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_organizations_parent_id ON organizations(parent_id);
+CREATE INDEX IF NOT EXISTS idx_organizations_sort_order ON organizations(sort_order);
 CREATE INDEX IF NOT EXISTS idx_organizations_created_by ON organizations(created_by);
 
 CREATE TABLE IF NOT EXISTS roles (
