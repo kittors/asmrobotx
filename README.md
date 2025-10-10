@@ -4,6 +4,7 @@
 
 ## 功能特性
 - 认证与授权：JWT 登录/注册/登出，密码 Bcrypt 存储，细粒度角色/权限/菜单（访问控制）
+- 分配能力：角色-用户分配、角色-组织（数据权限）分配，前端可用多选回显与全量覆盖提交
 - 统一规范：统一响应结构与异常处理，开放 `X-Access-Token` 头用于滑动续期
 - 数据域隔离：中间件 + 查询助手按“组织 + 角色”附加数据范围，创建时自动补齐审计字段
 - 数据层：PostgreSQL + SQLAlchemy ORM，Redis 预留（`Settings.redis_url`），Alembic 依赖已准备
@@ -141,6 +142,10 @@ TIMEZONE=Asia/Shanghai
 | GET  | /api/v1/users/me | 当前用户信息（需认证） |
 | GET  | /api/v1/organizations | 组织机构列表 |
 | GET  | /api/v1/access-controls/routers | 动态菜单路由（需认证） |
+| GET  | /api/v1/roles/{role_id}/users | 角色已分配用户查询（需认证） |
+| PUT  | /api/v1/roles/{role_id}/users | 角色分配用户（需认证） |
+| GET  | /api/v1/roles/{role_id}/organizations | 角色已分配组织查询（数据权限，需认证） |
+| PUT  | /api/v1/roles/{role_id}/organizations | 角色分配组织（数据权限，需认证） |
 | GET  | /api/v1/logs/operations | 操作日志查询（需认证） |
 | GET  | /api/v1/logs/logins | 登录日志查询（需认证） |
 | ...  | /api/v1/files / storage-configs | 文件与存储管理 |
