@@ -94,6 +94,10 @@ class RoleService:
         remark: Optional[str] = None,
         permission_ids: Optional[Iterable[int]] = None,
     ) -> dict:
+        # 禁止创建名称或权限字符为 admin 的角色（系统保留）
+        if name.strip().lower() == ADMIN_ROLE or role_key.strip().lower() == ADMIN_ROLE:
+            raise AppException("不允许创建系统保留角色（admin）", HTTP_STATUS_FORBIDDEN)
+
         self._assert_unique_constraints(db, name=name, role_key=role_key)
         normalized_status = self._normalize_status(status)
         permissions = self._load_access_controls(db, permission_ids)
@@ -164,7 +168,8 @@ class RoleService:
         role = role_crud.get(db, role_id)
         if role is None:
             raise AppException("角色不存在或已删除", HTTP_STATUS_NOT_FOUND)
-        if role.name in {ADMIN_ROLE, DEFAULT_USER_ROLE}:
+        # 禁止删除系统内置角色：名称为 admin/user 或权限字符为 admin
+        if (role.name or "").lower() in {ADMIN_ROLE, DEFAULT_USER_ROLE} or (role.role_key or "").lower() == ADMIN_ROLE:
             raise AppException("系统内置角色不允许删除", HTTP_STATUS_FORBIDDEN)
         if role.users:
             raise AppException("存在关联用户，无法删除该角色", HTTP_STATUS_BAD_REQUEST)

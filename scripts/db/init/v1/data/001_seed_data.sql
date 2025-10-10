@@ -343,8 +343,184 @@ WHERE NOT EXISTS (
 
 -- 组织与角色等基础数据
 INSERT INTO organizations (name)
-VALUES ('研发部')
-ON CONFLICT (name) DO NOTHING;
+SELECT '研发部'
+WHERE NOT EXISTS (
+    SELECT 1 FROM organizations o
+    WHERE o.name = '研发部' AND o.parent_id IS NULL AND o.is_deleted = FALSE
+);
+-- 组织树形结构（事业单位）：山西省 -> 地市/省政府 -> 区县/市政府/厅局（幂等插入）
+-- 顶层：省级
+INSERT INTO organizations (name, sort_order)
+SELECT v.name, v.sort_order
+FROM (VALUES
+    ('山西省', 1)
+) AS v(name, sort_order)
+WHERE NOT EXISTS (
+    SELECT 1 FROM organizations o
+    WHERE o.name = v.name AND o.parent_id IS NULL AND o.is_deleted = FALSE
+);
+
+-- 山西省 下辖地市与省政府
+INSERT INTO organizations (name, parent_id, sort_order)
+SELECT v.name, parent.id, v.sort_order
+FROM (VALUES
+    ('省政府', 1),
+    ('太原市', 2),
+    ('大同市', 3),
+    ('朔州市', 4),
+    ('忻州市', 5),
+    ('吕梁市', 6),
+    ('阳泉市', 7),
+    ('长治市', 8),
+    ('晋城市', 9),
+    ('晋中市', 10),
+    ('临汾市', 11),
+    ('运城市', 12)
+) AS v(name, sort_order)
+JOIN LATERAL (
+    SELECT id FROM organizations o
+    WHERE o.name = '山西省' AND o.parent_id IS NULL AND o.is_deleted = FALSE
+    ORDER BY id ASC LIMIT 1
+) parent ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1 FROM organizations o
+    WHERE o.name = v.name AND o.parent_id = parent.id AND o.is_deleted = FALSE
+);
+
+-- 省政府 厅委局（示例）
+INSERT INTO organizations (name, parent_id, sort_order)
+SELECT v.name, parent.id, v.sort_order
+FROM (VALUES
+    ('办公厅', 1),
+    ('教育厅', 2),
+    ('公安厅', 3),
+    ('财政厅', 4),
+    ('人力资源和社会保障厅', 5),
+    ('卫生健康委员会', 6),
+    ('工业和信息化厅', 7),
+    ('应急管理厅', 8),
+    ('交通运输厅', 9)
+) AS v(name, sort_order)
+JOIN LATERAL (
+    SELECT id FROM organizations o
+    WHERE o.name = '省政府'
+      AND o.parent_id = (SELECT id FROM organizations WHERE name = '山西省' AND parent_id IS NULL AND is_deleted = FALSE ORDER BY id ASC LIMIT 1)
+      AND o.is_deleted = FALSE
+    ORDER BY id ASC LIMIT 1
+) parent ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1 FROM organizations o
+    WHERE o.name = v.name AND o.parent_id = parent.id AND o.is_deleted = FALSE
+);
+
+-- 大同市 行政区划（区县，示例）
+INSERT INTO organizations (name, parent_id, sort_order)
+SELECT v.name, parent.id, v.sort_order
+FROM (VALUES
+    ('市政府', 1),
+    ('平城区', 2),
+    ('云冈区', 3),
+    ('新荣区', 4),
+    ('阳高县', 5),
+    ('天镇县', 6),
+    ('广灵县', 7),
+    ('灵丘县', 8),
+    ('浑源县', 9),
+    ('左云县', 10)
+) AS v(name, sort_order)
+JOIN LATERAL (
+    SELECT id FROM organizations o
+    WHERE o.name = '大同市'
+      AND o.parent_id = (SELECT id FROM organizations WHERE name = '山西省' AND parent_id IS NULL AND is_deleted = FALSE ORDER BY id ASC LIMIT 1)
+      AND o.is_deleted = FALSE
+    ORDER BY id ASC LIMIT 1
+) parent ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1 FROM organizations o
+    WHERE o.name = v.name AND o.parent_id = parent.id AND o.is_deleted = FALSE
+);
+
+-- 大同市 市政府 下属局委办（示例）
+INSERT INTO organizations (name, parent_id, sort_order)
+SELECT v.name, parent.id, v.sort_order
+FROM (VALUES
+    ('办公室', 1),
+    ('教育局', 2),
+    ('公安局', 3),
+    ('财政局', 4),
+    ('人力资源和社会保障局', 5),
+    ('卫生健康委员会', 6),
+    ('应急管理局', 7),
+    ('工业和信息化局', 8),
+    ('交通运输局', 9)
+) AS v(name, sort_order)
+JOIN LATERAL (
+    SELECT id FROM organizations o
+    WHERE o.name = '市政府'
+      AND o.parent_id = (
+          SELECT id FROM organizations
+          WHERE name = '大同市'
+            AND parent_id = (SELECT id FROM organizations WHERE name = '山西省' AND parent_id IS NULL AND is_deleted = FALSE ORDER BY id ASC LIMIT 1)
+            AND is_deleted = FALSE
+          ORDER BY id ASC LIMIT 1
+      )
+      AND o.is_deleted = FALSE
+    ORDER BY id ASC LIMIT 1
+) parent ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1 FROM organizations o
+    WHERE o.name = v.name AND o.parent_id = parent.id AND o.is_deleted = FALSE
+);
+
+-- 太原市 行政区划（示例，含市政府）
+INSERT INTO organizations (name, parent_id, sort_order)
+SELECT v.name, parent.id, v.sort_order
+FROM (VALUES
+    ('市政府', 1),
+    ('小店区', 2),
+    ('迎泽区', 3),
+    ('杏花岭区', 4),
+    ('万柏林区', 5),
+    ('尖草坪区', 6),
+    ('晋源区', 7)
+) AS v(name, sort_order)
+JOIN LATERAL (
+    SELECT id FROM organizations o
+    WHERE o.name = '太原市'
+      AND o.parent_id = (SELECT id FROM organizations WHERE name = '山西省' AND parent_id IS NULL AND is_deleted = FALSE ORDER BY id ASC LIMIT 1)
+      AND o.is_deleted = FALSE
+    ORDER BY id ASC LIMIT 1
+) parent ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1 FROM organizations o
+    WHERE o.name = v.name AND o.parent_id = parent.id AND o.is_deleted = FALSE
+);
+
+-- 太原市 市政府 下属局委办（少量示例）
+INSERT INTO organizations (name, parent_id, sort_order)
+SELECT v.name, parent.id, v.sort_order
+FROM (VALUES
+    ('办公室', 1),
+    ('教育局', 2),
+    ('公安局', 3)
+) AS v(name, sort_order)
+JOIN LATERAL (
+    SELECT id FROM organizations o
+    WHERE o.name = '市政府'
+      AND o.parent_id = (
+          SELECT id FROM organizations
+          WHERE name = '太原市'
+            AND parent_id = (SELECT id FROM organizations WHERE name = '山西省' AND parent_id IS NULL AND is_deleted = FALSE ORDER BY id ASC LIMIT 1)
+            AND is_deleted = FALSE
+          ORDER BY id ASC LIMIT 1
+      )
+      AND o.is_deleted = FALSE
+    ORDER BY id ASC LIMIT 1
+) parent ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1 FROM organizations o
+    WHERE o.name = v.name AND o.parent_id = parent.id AND o.is_deleted = FALSE
+);
 
 INSERT INTO roles (name, role_key, sort_order, status)
 VALUES ('admin', 'admin', 1, 'normal')
@@ -365,7 +541,7 @@ VALUES (
     'admin',
     crypt('admin123', gen_salt('bf')),
     '系统管理员',
-    (SELECT id FROM organizations WHERE name = '研发部'),
+    (SELECT id FROM organizations WHERE name = '山西省' AND parent_id IS NULL AND is_deleted = FALSE ORDER BY id ASC LIMIT 1),
     'normal',
     NULL,
     TRUE

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.packages.system.core.constants import (
     ACCESS_TOKEN_TYPE,
+    DEFAULT_ADMIN_USERNAME,
     DEFAULT_USER_ROLE,
     HTTP_STATUS_CONFLICT,
     HTTP_STATUS_NOT_FOUND,
@@ -40,6 +41,10 @@ class AuthService:
 
     def register_user(self, db: Session, *, username: str, password: str) -> dict:
         """创建新用户并设置默认角色。注册不再允许前端选择组织，统一归属默认组织。"""
+        # 保留账户：不允许注册用户名为 admin 的用户
+        if (username or "").strip().lower() == DEFAULT_ADMIN_USERNAME:
+            raise AppException(msg="系统内置管理员用户名已保留，禁止创建", code=HTTP_STATUS_CONFLICT)
+
         existing_user = user_crud.get_by_username(db, username)
         if existing_user:
             raise AppException(msg="用户名已存在", code=HTTP_STATUS_CONFLICT)

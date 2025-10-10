@@ -135,6 +135,10 @@ class UserService:
         if not trimmed_username:
             raise AppException("用户名不能为空", HTTP_STATUS_BAD_REQUEST)
 
+        # 保留账户：不允许创建用户名为 admin 的用户
+        if trimmed_username.lower() == DEFAULT_ADMIN_USERNAME:
+            raise AppException("系统内置管理员用户名已保留，禁止创建", HTTP_STATUS_BAD_REQUEST)
+
         if user_crud.get_by_username(db, trimmed_username):
             raise AppException("用户名已存在", HTTP_STATUS_CONFLICT)
 
@@ -371,6 +375,10 @@ class UserService:
 
         created_count = 0
         for item in pending:
+            # 禁止通过导入创建系统管理员账号
+            if (item["username"] or "").strip().lower() == DEFAULT_ADMIN_USERNAME:
+                errors.append({"row": item["row"], "message": "系统内置管理员用户名已保留，禁止创建"})
+                continue
             if item["username"] in existing_map:
                 errors.append({"row": item["row"], "message": "用户名已存在"})
                 continue

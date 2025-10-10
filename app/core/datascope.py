@@ -58,6 +58,12 @@ def apply_data_scope(query: Query, model: Any) -> Query:
     """
     scope = get_scope()
 
+    # 管理员跨组织/角色查看数据：若当前用户具备 admin 角色，则不做任何数据域过滤。
+    # 说明：这与业务侧“管理员拥有全部权限”的预期一致，也能修复登录 admin
+    # 时菜单/路由为空（因组织不匹配被过滤掉）的现象。
+    if getattr(scope, "is_admin", False):  # 防御性：scope 可能被替换为简化对象
+        return query
+
     if hasattr(model, "organization_id") and scope.organization_id is not None:
         try:
             org_col = getattr(model, "organization_id")
