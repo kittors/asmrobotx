@@ -105,10 +105,10 @@
 
 查询：`storageId`, `path=/`, `fileType=image|document|spreadsheet|pdf|markdown|all`, `search`
 
-- 数据来源：仅从表 `file_records` 读取，不访问对象存储或本地文件系统；若数据库未同步，列表可能为空；
+- 数据来源：仅从数据库读取（文件：`file_records`；目录：`directory_entries`），不访问对象存储或本地文件系统；若数据库未同步，列表可能为空；
 - 当提供 `fileType` 且不为 `all` 时：仅返回匹配类型的“文件”，目录将被隐藏；
 - 当未提供或为 `all`：返回当前目录下的目录与所有文件（目录集合根据 `file_records.directory` 推导，空目录需通过“同步”后才可显示）。
-- 内部文件：对于 LOCAL 存储，系统在根目录维护的记录文件 `.dir_ops.jsonl` 为内部用途，不会出现在列表结果中。
+  
 
 返回字段说明：
 - `currentPath`：当前浏览的相对目录路径（统一以 `/` 开头并以 `/` 结尾，例如 `/`、`/docs/`）。
@@ -283,26 +283,4 @@
 
 ---
 
-## 目录操作记录与导入（LOCAL 存储）
-
-当存储源为本地目录（LOCAL）时，系统会在该存储根目录下生成一个“记录文件”，用于记录目录层面的新增/重命名/移动/删除/复制操作。应用启动时会自动读取这些记录并导入数据库。
-
-- 记录文件位置：`<local_root_path>/.dir_ops.jsonl`
-- 文件格式：JSON Lines（每行一个 JSON 对象）
-
-示例内容：
-```json
-{"action":"create","path_new":"/reports/","operate_time":"2025-01-01T10:00:00Z"}
-{"action":"rename","path_old":"/old/","path_new":"/new/","operate_time":"2025-01-01T10:01:00Z"}
-{"action":"move","path_old":"/a/","path_new":"/b/a/","operate_time":"2025-01-01T10:02:00Z"}
-{"action":"delete","path_old":"/tmp/","operate_time":"2025-01-01T10:03:00Z"}
-{"action":"copy","path_old":"/tpl/","path_new":"/tpl-copy/","operate_time":"2025-01-01T10:04:00Z"}
-```
-
-- 导入时机：应用 `startup`（例如你在开发环境执行：
-  `docker compose --env-file .env.development down -v && docker compose --env-file .env.development up -d db redis && uvicorn app.main:app --reload`），
-  启动后会扫描所有 LOCAL 存储的该文件并导入。
-- 导入表：`directory_change_records`
-  - 字段：`storage_id`, `action`, `path_old`, `path_new`, `operate_time`, `create_time` 等
-  - 幂等：通过唯一索引避免重复导入（`storage_id + action + path_old + path_new + operate_time`）
-- 注意：导入后记录文件不会清空；重复启动不会产生重复记录。
+  

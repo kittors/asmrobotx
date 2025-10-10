@@ -87,7 +87,6 @@ class StorageBackend:
 class LocalBackend(StorageBackend):
     def __init__(self, root: str):
         self.root = Path(root).resolve()
-        self._record_file = self.root / ".dir_ops.jsonl"
         if not self.root.exists():
             try:
                 self.root.mkdir(parents=True, exist_ok=True)
@@ -114,25 +113,6 @@ class LocalBackend(StorageBackend):
         if ensure_trailing_slash and not rel.endswith("/"):
             rel += "/"
         return rel
-
-    def _append_dir_event(self, *, action: str, path_old: Optional[str] = None, path_new: Optional[str] = None) -> None:
-        """将目录相关的操作追加到根目录下的记录文件（JSON Lines）。"""
-        try:
-            from datetime import datetime, timezone
-            import json
-
-            event = {
-                "action": action,
-                "path_old": path_old,
-                "path_new": path_new,
-                "operate_time": datetime.now(timezone.utc).isoformat(),
-            }
-            self._record_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._record_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(event, ensure_ascii=False) + "\n")
-        except Exception:
-            # 记录失败不影响主流程
-            pass
 
     def _filter_type(self, name: str, file_type: Optional[str]) -> bool:
         if not file_type or file_type == "all":
@@ -178,12 +158,6 @@ class LocalBackend(StorageBackend):
                         }
                     )
                 else:
-                    # 隐藏内部记录文件（不对外展示）
-                    try:
-                        if entry.name == self._record_file.name:
-                            continue
-                    except Exception:
-                        pass
                     if not self._filter_type(name, file_type):
                         continue
                     abs_path = str(entry)
@@ -277,8 +251,6 @@ class LocalBackend(StorageBackend):
             idx += 1
         new_dir = parent_dir / final_name
         new_dir.mkdir(parents=False, exist_ok=False)
-        # 记录目录创建
-        self._append_dir_event(action="create", path_new=self._rel(new_dir, ensure_trailing_slash=True))
         return create_response("文件夹创建成功", {"folder_name": final_name}, HTTP_STATUS_OK)
 
     def rename(self, *, old_path: str, new_path: str) -> dict:
@@ -291,12 +263,6 @@ class LocalBackend(StorageBackend):
         dst.parent.mkdir(parents=True, exist_ok=True)
         was_dir = src.is_dir()
         src.rename(dst)
-        if was_dir:
-            self._append_dir_event(
-                action="rename",
-                path_old=self._rel(src, ensure_trailing_slash=True),
-                path_new=self._rel(dst, ensure_trailing_slash=True),
-            )
         return create_response("重命名成功", None, HTTP_STATUS_OK)
 
     def move(self, *, source_paths: List[str], destination_path: str) -> dict:
@@ -325,12 +291,6 @@ class LocalBackend(StorageBackend):
                 raise AppException(f"目标已存在: {dst.name}", HTTP_STATUS_BAD_REQUEST)
             was_dir = src.is_dir()
             shutil.move(str(src), str(dst))
-            if was_dir:
-                self._append_dir_event(
-                    action="move",
-                    path_old=self._rel(src, ensure_trailing_slash=True),
-                    path_new=self._rel(dst, ensure_trailing_slash=True),
-                )
         return create_response("文件/文件夹移动成功", None, HTTP_STATUS_OK)
 
     def copy(self, *, source_paths: List[str], destination_path: str) -> dict:
@@ -360,11 +320,6 @@ class LocalBackend(StorageBackend):
                     # 统一转换为业务异常，避免 500。常见如文件名过长、递归复制导致的错误
                     logger.exception("Local copy failed: %s", exc)
                     raise AppException("复制失败：目标路径不合法或文件名过长", HTTP_STATUS_BAD_REQUEST) from exc
-                self._append_dir_event(
-                    action="copy",
-                    path_old=self._rel(src, ensure_trailing_slash=True),
-                    path_new=self._rel(dst, ensure_trailing_slash=True),
-                )
             else:
                 try:
                     shutil.copy2(src, dst)
@@ -380,8 +335,6 @@ class LocalBackend(StorageBackend):
                 # 允许幂等：不存在则忽略
                 continue
             if target.is_dir():
-                # 记录目录删除
-                self._append_dir_event(action="delete", path_old=self._rel(target, ensure_trailing_slash=True))
                 shutil.rmtree(target)
             else:
                 target.unlink()
