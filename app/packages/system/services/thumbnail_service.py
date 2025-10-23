@@ -182,7 +182,7 @@ class ThumbnailService:
                 pass
             raise AppException(
                 "缩略图依赖加载失败：当前运行环境无法导入 Pillow。"
-                "请确认服务使用的 Python 解释器与安装 Pillow 的环境一致（例如通过 .venv/bin/uvicorn 启动），"
+                "请确认服务使用的 Python 解释器与安装 Pillow 的环境一致（例如通过 uv run uvicorn 启动），"
                 "或重新安装 Pillow 以匹配当前平台/架构。",
                 HTTP_STATUS_BAD_REQUEST,
             ) from exc

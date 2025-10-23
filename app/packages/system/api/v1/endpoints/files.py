@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, HTTPException, status
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.packages.system.api.v1.schemas.files import (
@@ -34,6 +34,7 @@ from app.packages.system.services.file_service import file_service
 from app.packages.system.services.clipboard_service import clipboard_service
 from app.packages.system.services.log_service import log_service
 from app.packages.system.services.thumbnail_service import thumbnail_service
+from app.packages.system.services.storage_backends import LocalBackend
 from app.packages.system.core.security import create_temporary_token, decode_and_verify_token
 
 router = APIRouter(tags=["files"])
@@ -273,17 +274,22 @@ def download_file(
 
 @router.get("/files/preview")
 def preview_file(
+    request: Request,
     storage_id: int = Query(..., alias="storageId"),
     path: str = Query(...),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
     backend = file_service._get_backend(db, storage_id=storage_id)
+    # 本地文件支持 Range 206，S3 仍使用后端直链
+    if isinstance(backend, LocalBackend):
+        return _local_range_preview(backend, path, request)
     return backend.preview(path=path)
 
 
 @router.get("/files/preview-signed")
 def preview_file_signed(
+    request: Request,
     t: str = Query(..., alias="t", description="短期签名 token，用于匿名预览"),
     db: Session = Depends(get_db),
 ):
@@ -298,7 +304,109 @@ def preview_file_signed(
     if not storage_id or not path:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="签名载荷不完整")
     backend = file_service._get_backend(db, storage_id=storage_id)
+    if isinstance(backend, LocalBackend):
+        return _local_range_preview(backend, path, request)
     return backend.preview(path=path)
+
+
+def _local_range_preview(backend: LocalBackend, rel_path: str, request: Request):
+    """对本地文件提供带 Range 的 206 响应，支持视频/音频拖拽。
+
+    - 支持 bytes=start-end、bytes=start-、bytes=-suffix 三种形式；
+    - 单段实现，若收到多段 Range（逗号分隔），仅取第一段；
+    - 对非法范围返回 416，并附带正确的 Content-Range: bytes */total。
+    """
+    import os
+    import mimetypes
+
+    target = backend._resolve(rel_path)  # 使用后端的安全解析
+    if not target.exists() or not target.is_file():
+        from app.packages.system.core.exceptions import AppException
+        from app.packages.system.core.constants import HTTP_STATUS_NOT_FOUND
+        raise AppException("文件不存在", HTTP_STATUS_NOT_FOUND)
+
+    file_size = target.stat().st_size
+    content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+    range_header = request.headers.get("range") or request.headers.get("Range")
+
+    def _parse_range(range_value: str, size: int):
+        try:
+            unit, _, spec = range_value.partition("=")
+            if unit.strip().lower() != "bytes":
+                return None
+            # 多段只取第一段
+            if "," in spec:
+                spec = spec.split(",", 1)[0].strip()
+            if "-" not in spec:
+                return None
+            start_s, end_s = spec.split("-", 1)
+            if start_s == "":
+                # suffix length
+                length = int(end_s)
+                if length <= 0:
+                    return None
+                start = max(size - length, 0)
+                end = size - 1
+            else:
+                start = int(start_s)
+                end = int(end_s) if end_s else size - 1
+            if start < 0 or end < start or start >= size:
+                return "invalid"
+            end = min(end, size - 1)
+            return (start, end)
+        except Exception:
+            return None
+
+    if range_header:
+        parsed = _parse_range(range_header, file_size)
+        if parsed == "invalid":
+            headers = {
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes */{file_size}",
+            }
+            return Response(status_code=416, headers=headers)
+        if isinstance(parsed, tuple):
+            start, end = parsed
+            length = end - start + 1
+
+            def iter_file(path: str, start_pos: int, end_pos: int, chunk_size: int = 1024 * 256):
+                with open(path, "rb") as f:
+                    f.seek(start_pos)
+                    remaining = end_pos - start_pos + 1
+                    while remaining > 0:
+                        chunk = f.read(min(chunk_size, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+
+            headers = {
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(length),
+                "Content-Type": content_type,
+            }
+            return StreamingResponse(
+                iter_file(str(target), start, end),
+                status_code=206,
+                headers=headers,
+            )
+
+    # 无 Range：整段返回，同时告知支持分段
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(file_size),
+        "Content-Type": content_type,
+    }
+    def iter_full(path: str, chunk_size: int = 1024 * 256):
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+
+    return StreamingResponse(iter_full(str(target)), status_code=200, headers=headers)
 
 
 @router.get("/files/thumbnail")

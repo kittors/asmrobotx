@@ -282,8 +282,8 @@
   - 开发示例：`LOCAL_FILE_ROOT=/tmp/asmrobotx-files`
   - 生产示例：`LOCAL_FILE_ROOT=/data/asmrobotx-files`（建议挂载持久卷）
 
-> 提示：S3 功能需后端安装 `boto3`（已在 requirements.txt 中）。
-> 缩略图需安装 `Pillow`（已在 requirements.txt 中）。
+> 提示：S3 功能需后端安装 `boto3`（已在 pyproject.toml/uv.lock 中）。
+> 缩略图需安装 `Pillow`（已在 pyproject.toml/uv.lock 中）。
 
 ---
 

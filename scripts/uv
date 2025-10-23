@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run uv either on host (if available) or inside Docker Compose app service.
+# This updates pyproject.toml and uv.lock in the project root via bind mount.
+
+here="$(cd "$(dirname "$0")" && pwd)"
+repo_root="$(cd "$here/.." && pwd)"
+cd "$repo_root"
+
+if command -v uv >/dev/null 2>&1; then
+  exec uv "$@"
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Error: 'uv' not found and 'docker' is not available." >&2
+  exit 1
+fi
+
+# Detect compose command
+if docker compose version >/dev/null 2>&1; then
+  compose=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  compose=(docker-compose)
+else
+  echo "Error: Docker Compose is not available." >&2
+  exit 1
+fi
+
+# If app service is running, exec into it to ensure the active env is updated.
+app_cid="$(${compose[@]} ps -q app 2>/dev/null || true)"
+if [ -n "$app_cid" ]; then
+  exec "${compose[@]}" exec -T app uv "$@"
+fi
+
+# Otherwise run a one-off container; ensure file ownership matches host user.
+uid="$(id -u)"; gid="$(id -g)"
+exec "${compose[@]}" run --rm -T --user "$uid:$gid" app uv "$@"
+

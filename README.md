@@ -44,68 +44,79 @@
 │   ├── conftest.py              # 独立 SQLite 测试库与依赖覆盖
 │   └── system/                  # 主要接口用例：auth、users、roles、organizations、dictionaries、logs、file_manager、access_control
 ├── docs/system/api/             # 系统包接口文档（Markdown）
-├── docker-compose.yml           # app + postgres + redis（支持 ENVIRONMENT 切换）
+├── docker-compose.yml           # app + postgres + redis（基础配置）
+├── docker-compose.override.yml  # 开发覆盖：热重载 + 依赖自动同步（dev）
 ├── Dockerfile
-├── requirements.txt
+├── pyproject.toml            # 项目依赖（uv 管理）
 ├── .env.development / .env.production / .env
 └── README.md
 ```
 
 ## 快速开始
 
-1) 本地虚拟环境
+推荐使用 Docker 本地开发（宿主机无需安装 Python/uv）。仓库已提供 `docker-compose.override.yml`，默认开启热重载，并在容器内用 uv 自动同步依赖。
+
+1) 准备环境变量
 ```bash
-# 建议Python 3.11.13
-python -m venv .venv 
-source .venv/bin/activate
-pip install -r requirements.txt
 cp .env.development .env   # 可按需修改数据库、Redis、JWT、端口、时区等
 ```
-- 启动开发服务（确保使用 venv 的解释器）：
-  ```bash
-  # 推荐：用当前 venv 的 Python 调用 uvicorn 模块，避免命中全局 uvicorn 的 shebang
-  python -m uvicorn app.main:app --reload
 
-  # 或者显式使用 venv 下的 uvicorn 可执行文件
-  .venv/bin/uvicorn app.main:app --reload
-  ```
+2) 一键启动（含热重载）
+```bash
+docker compose --env-file .env.development up --build
+```
+- 首次启动会构建镜像并安装依赖。
+- 挂载 `.:/app`，代码改动将触发 uvicorn 热重载。
 - 健康检查：`curl http://127.0.0.1:8000/health`
-- 本地文件根目录（可选）：在 `.env` 配置 `LOCAL_FILE_ROOT`（示例：/tmp/asmrobotx-files 或 /data/asmrobotx-files）。若不存在存储源，将基于该目录自动创建“本地存储(默认)”。
+- API 文档：访问 http://127.0.0.1:8000/docs
+- 端口：宿主机监听 `APP_PORT`（默认 8000），容器固定监听 8000（compose 端口映射 `${APP_PORT}:8000`）。
 
-2) 启动数据库与缓存（Docker，推荐本地开发）
+## 依赖管理（无需主机安装 uv）
+
+通过提供的脚本直接在 Docker 容器内执行 uv，自动更新项目根目录下的 `pyproject.toml` 与 `uv.lock`（通过绑定挂载生效）。
+
+- 添加运行时依赖：
+  - `./scripts/uv add <pkg>`
+- 添加开发依赖：
+  - `./scripts/uv add --dev <pkg>`
+- 移除依赖：
+  - `./scripts/uv remove <pkg>`
+- 升级依赖并刷新锁：
+  - `./scripts/uv lock --upgrade`
+
+注意：
+- 若应用容器正在运行，脚本会优先执行 `docker compose exec app uv ...`，依赖会立即安装到当前容器环境，无需重启。
+- 若容器未运行，脚本会短暂 `docker compose run --rm app uv ...` 更新依赖文件；此时启动应用时会自动 `uv sync` 安装依赖。
+- 记得提交更新的 `pyproject.toml` 与 `uv.lock` 到版本库。
+
+3) 查看日志
+- 前台查看所有服务：`docker compose --env-file .env.development up`
+- 后台运行查看应用日志：`docker compose logs -f app`
+- 多服务合并查看：`docker compose logs -f --tail 200 app db redis`
+
+4) 在容器中运行测试
+```bash
+docker compose run --rm app uv run pytest -q
+```
+- 或已启动情况下：`docker compose exec app uv run pytest -q`
+
+5) 仅启动依赖（可选）
 ```bash
 docker compose --env-file .env.development up -d db redis
 ```
-- PostgreSQL 默认暴露到 `POSTGRES_HOST_PORT`（开发默认 5433）
-- Redis 默认暴露到 `REDIS_HOST_PORT`（开发默认 6380）
+- PostgreSQL 暴露到 `POSTGRES_HOST_PORT`（开发默认 5433）
+- Redis 暴露到 `REDIS_HOST_PORT`（开发默认 6380）
 
-3) 启动应用
+6) 本机原生运行（可选，仅当你已安装 uv）
 ```bash
-# 可通过 APP_ACTIVE_PACKAGE 指定业务包（默认 system）
+# 安装 uv（未安装时）
+# macOS / Linux：curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows (PowerShell)：iwr https://astral.sh/uv/install.ps1 -UseB | iex
+
+uv sync
 export ENV_FILE=.env.development
-# 推荐：确保使用 venv 的 Python 启动（避免全局 uvicorn 覆盖 venv）
-python -m uvicorn app.main:app --reload
-# 访问 http://127.0.0.1:8000/docs 查看自动文档
+uv run uvicorn app.main:app --reload
 ```
-
-4) Docker Compose 部署（全栈）
-```bash
-docker compose --env-file .env.production up --build
-```
-- 容器说明：
-  - app：启动时执行 `app/packages/system/db/init_db.py`（幂等），并将刷新后的令牌写入响应头 `X-Access-Token`
-  - db：首次初始化自动执行 `scripts/db/init` 下脚本（聚合 `01_v1.sql`）
-  - redis：可选缓存服务
-- 常用操作：
-  - 仅依赖：`docker compose --env-file .env.development up -d db redis`
-  - 下线：`docker compose --env-file .env.development down`
-  - 下线并清空数据：`docker compose --env-file .env.development down -v`
-
-5) 运行测试
-```bash
-pytest -q
-```
-- 使用独立 SQLite 测试数据库，自动迁移 + 播种，无需手动准备数据
 
 ## 核心环境变量
 - 基础运行：`ENVIRONMENT`、`PROJECT_NAME`、`API_V1_STR`、`DEBUG`
@@ -171,28 +182,6 @@ TIMEZONE=Asia/Shanghai
 ```
 
 详尽接口说明见 `docs/system/api/`。
-
-## 常见问题：uvicorn 未在虚拟环境中运行
-
-现象：`/api/v1/files/thumbnail` 返回关于 Pillow 的错误，或日志中出现类似：
-
-- `exe=/opt/homebrew/opt/python@3.11/bin/python3.11`（说明正在使用 Homebrew 的 Python，而非 venv）
-- `ModuleNotFoundError: No module named 'PIL'`
-
-原因：shell 中的 `uvicorn` 指向了全局安装（如 Homebrew）的可执行文件，其 shebang 指回全局 Python；即使已 `source .venv/bin/activate`，启动的服务进程也不在 venv 内。
-
-解决：
-- 始终用 venv 的 Python 启动：`python -m uvicorn app.main:app --reload`，或使用 `.venv/bin/uvicorn ...`
-- 启动前确认：
-  ```bash
-  which uvicorn   # 期望是 .../.venv/bin/uvicorn
-  which python    # 期望是 .../.venv/bin/python
-  python -c 'import sys; print(sys.executable)'
-  ```
-- zsh 下如命中过旧缓存：执行 `rehash`（bash: `hash -r`）。
-
-如果确需使用系统 Python 运行服务，请在同一个解释器上安装所需依赖，例如：
-`/opt/homebrew/opt/python@3.11/bin/python3.11 -m pip install Pillow==10.4.0`
 
 ## 后续扩展
 1. 完成 Alembic 迁移脚本，替代手工 SQL 变更

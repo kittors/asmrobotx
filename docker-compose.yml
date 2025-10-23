@@ -11,7 +11,8 @@ services:
       - redis
     volumes:
       - .:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-8000}
+    # Ensure dependencies are synced when mounting the source (dev)
+    command: sh -c "if [ -f uv.lock ]; then uv sync --no-dev --frozen; else uv sync --no-dev; fi && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   db:
     image: postgres:15
