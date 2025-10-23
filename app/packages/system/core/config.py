@@ -88,8 +88,12 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_dir: str = Field(default="log", alias="LOG_DIR")
     log_file_name: str = Field(default="app.log", alias="LOG_FILE_NAME")
+    log_json: bool = Field(default=False, alias="LOG_JSON")
     app_port: int = Field(default=8000, alias="APP_PORT")
     timezone: str = Field(default="Asia/Shanghai", alias="TIMEZONE")
+
+    # 错误日志策略：严格记录同步异常（建议默认 True）
+    files_sync_strict_log: bool = Field(default=True, alias="FILES_SYNC_STRICT_LOG")
 
     # 数据隔离策略配置
     data_scope_default_enabled: bool = Field(default=True, alias="DATA_SCOPE_DEFAULT_ENABLED")

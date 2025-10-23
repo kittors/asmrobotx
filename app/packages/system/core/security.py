@@ -37,6 +37,18 @@ def create_access_token(subject: Dict[str, Any], expires_delta: Optional[timedel
     return encoded_jwt
 
 
+def create_temporary_token(subject: Dict[str, Any], *, expires_seconds: int = 600) -> str:
+    """创建一个短期有效的 JWT，用于临时直链等场景。
+
+    注意：该令牌不绑定用户会话，仅用于资源级别的临时授权。
+    """
+    settings = get_settings()
+    expire = datetime.now(timezone.utc) + timedelta(seconds=max(int(expires_seconds or 0), 1))
+    payload = subject.copy()
+    payload.update({"exp": expire})
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
 def store_refreshed_token(token: Optional[str]) -> None:
     """记录当前请求中新生成的访问令牌，供响应阶段附带返回。"""
     _refreshed_token_ctx.set(token)
@@ -60,6 +72,24 @@ def decode_token(token: str) -> Optional[Dict[str, Any]]:
         return payload
     except JWTError as exc:  # pragma: no cover - logging side effect
         logger.warning("Failed to decode JWT: %s", exc)
+        return None
+
+
+def decode_and_verify_token(token: str, *, verify_exp: bool = True) -> Optional[Dict[str, Any]]:
+    """解码并校验 JWT，默认校验过期时间。
+
+    与 ``decode_token`` 不同，该函数会根据 ``verify_exp`` 决定是否验证 ``exp``。适合用于直链签名等需要严格过期控制的场景。
+    """
+    settings = get_settings()
+    try:
+        return jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+            options={"verify_exp": verify_exp},
+        )
+    except JWTError as exc:  # pragma: no cover - logging side effect
+        logger.warning("Failed to verify JWT: %s", exc)
         return None
 
 

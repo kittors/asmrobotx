@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+import sys
+import platform
+import traceback
 
 from app.packages.system.core.exceptions import AppException
 from app.packages.system.core.constants import HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_NOT_FOUND
@@ -48,7 +51,7 @@ class ThumbnailService:
         width = int(width or self.DEFAULT_WIDTH)
         if height is not None:
             height = int(height)
-        fmt = (fmt or self.DEFAULT_FMT).lower()
+        fmt_req = (fmt or self.DEFAULT_FMT).lower()
         quality = int(quality or self.DEFAULT_QUALITY)
 
         # 规范化原始路径
@@ -79,8 +82,11 @@ class ThumbnailService:
             acl_type=getattr(cfg, "acl_type", "private"),
         )
 
-        # 目标缩略图相对存储路径
-        thumb_dir, thumb_name = self._thumb_relpath(rel, width, height, fmt, backend)
+        # 根据运行环境能力决定最终输出格式（例如 Pillow 未启用 webp 时退回 jpg）
+        eff_fmt = self._effective_format(fmt_req)
+
+        # 目标缩略图相对存储路径（基于最终输出格式计算文件名）
+        thumb_dir, thumb_name = self._thumb_relpath(rel, width, height, eff_fmt, backend)
 
         # 命中缓存：直接返回
         if isinstance(backend, LocalBackend):
@@ -97,9 +103,9 @@ class ThumbnailService:
             except Exception:
                 pass
 
-        # 缓存未命中：生成
+        # 缓存未命中：生成（不再自动回退原图，直接暴露真实错误，便于定位根因）
         image_bytes = self._load_original_bytes(cfg, backend, rel)
-        thumb_bytes = self._make_thumbnail(image_bytes, width=width, height=height, fmt=fmt, quality=quality)
+        thumb_bytes = self._make_thumbnail(image_bytes, width=width, height=height, fmt=eff_fmt, quality=quality)
 
         # 写入存储
         if isinstance(backend, LocalBackend):
@@ -109,7 +115,7 @@ class ThumbnailService:
             abs_thumb = dst_dir / thumb_name
             with open(abs_thumb, "wb") as f:
                 f.write(thumb_bytes)
-            return FileResponse(str(abs_thumb), media_type=self._mime_for(fmt), filename=thumb_name)
+            return FileResponse(str(abs_thumb), media_type=self._mime_for(eff_fmt), filename=thumb_name)
         else:
             # 上传到 thumbnails 目录
             backend.upload(path=thumb_dir, files=[(thumb_name, thumb_bytes)])
@@ -159,9 +165,27 @@ class ThumbnailService:
 
     def _make_thumbnail(self, data: bytes, *, width: int, height: Optional[int], fmt: str, quality: int) -> bytes:
         try:
-            from PIL import Image
-        except Exception as exc:
-            raise AppException("缩略图功能未启用：缺少 Pillow 依赖", HTTP_STATUS_BAD_REQUEST) from exc
+            from PIL import Image, features
+        except ImportError as exc:
+            # 这里提供精确的环境信息，帮助用户定位“为什么导入失败”
+            details = (
+                f"Pillow 导入失败: {exc};\n"
+                f"python={sys.version};\n"
+                f"exe={sys.executable}; platform={platform.platform()}; machine={platform.machine()}\n"
+                f"sys.path[0:3]={sys.path[:3]}"
+            )
+            # 延伸：把完整堆栈写入日志（不暴露给客户端）
+            try:
+                from app.packages.system.core.logger import logger  # 延迟导入避免循环
+                logger.error("Thumbnail import error: %s\n%s", details, traceback.format_exc())
+            except Exception:
+                pass
+            raise AppException(
+                "缩略图依赖加载失败：当前运行环境无法导入 Pillow。"
+                "请确认服务使用的 Python 解释器与安装 Pillow 的环境一致（例如通过 .venv/bin/uvicorn 启动），"
+                "或重新安装 Pillow 以匹配当前平台/架构。",
+                HTTP_STATUS_BAD_REQUEST,
+            ) from exc
 
         # 安全解码，部分格式需要转换
         img = Image.open(io.BytesIO(data))
@@ -174,12 +198,20 @@ class ThumbnailService:
         # 输出
         out = io.BytesIO()
         fmt_lc = fmt.lower()
-        if fmt_lc == "png":
+        # 如果请求 webp 但运行环境未启用 webp，则回退到 JPEG
+        if fmt_lc == "webp" and hasattr(features, "check") and not features.check("webp"):
+            fmt_lc = "jpeg"
+        try:
+            if fmt_lc == "png":
+                img.save(out, format="PNG", optimize=True)
+            elif fmt_lc in ("jpg", "jpeg"):
+                img.save(out, format="JPEG", quality=quality, optimize=True)
+            else:  # webp
+                img.save(out, format="WEBP", quality=quality, method=6)
+        except Exception:
+            # 最终兜底：若指定格式保存失败，尝试以 PNG 输出
+            out = io.BytesIO()
             img.save(out, format="PNG", optimize=True)
-        elif fmt_lc in ("jpg", "jpeg"):
-            img.save(out, format="JPEG", quality=quality, optimize=True)
-        else:  # webp
-            img.save(out, format="WEBP", quality=quality, method=6)
         return out.getvalue()
 
     def _mime_for(self, fmt: str) -> str:
@@ -190,6 +222,23 @@ class ThumbnailService:
             return "image/jpeg"
         return "image/webp"
 
+    def _effective_format(self, requested: str) -> str:
+        """根据运行时特性决定最终输出格式。
+
+        - 如请求 webp 而 Pillow 未启用 webp 编码，则回退到 jpeg；
+        - 其它格式按请求返回。
+        """
+        req = (requested or self.DEFAULT_FMT).lower()
+        if req != "webp":
+            return req
+        try:
+            from PIL import features  # type: ignore
+            if hasattr(features, "check") and features.check("webp"):
+                return "webp"
+            return "jpeg"
+        except Exception:
+            # 无法检测能力时保守回退为 jpeg
+            return "jpeg"
+
 
 thumbnail_service = ThumbnailService()
-

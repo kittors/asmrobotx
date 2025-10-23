@@ -351,30 +351,47 @@ CREATE INDEX IF NOT EXISTS idx_file_records_purpose ON file_records(purpose);
 -- ---------------------------------------------------------------------------
 -- 本地目录变更记录：用于从本地存储根目录下的“记录文件”导入到数据库
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS directory_change_records (
-    id SERIAL PRIMARY KEY,
-    storage_id INTEGER NOT NULL,
-    action VARCHAR(32) NOT NULL, -- create | rename | move | delete | copy
-    path_old VARCHAR(1024),
-    path_new VARCHAR(1024),
-    operate_time TIMESTAMPTZ NOT NULL,
-    extra JSONB,
-    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    is_deleted BOOLEAN NOT NULL DEFAULT FALSE
-);
-ALTER TABLE directory_change_records ADD COLUMN IF NOT EXISTS created_by INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE directory_change_records ADD COLUMN IF NOT EXISTS organization_id INTEGER NOT NULL DEFAULT 1;
-CREATE INDEX IF NOT EXISTS idx_directory_change_records_created_by ON directory_change_records(created_by);
-CREATE INDEX IF NOT EXISTS idx_directory_change_records_organization_id ON directory_change_records(organization_id);
-
--- 保证幂等导入：同一条记录不会重复插入
-CREATE UNIQUE INDEX IF NOT EXISTS uq_directory_change_records_dedup
-ON directory_change_records(storage_id, action, COALESCE(path_old, ''), COALESCE(path_new, ''), operate_time)
-WHERE is_deleted = FALSE;
-
-CREATE INDEX IF NOT EXISTS idx_directory_change_records_storage ON directory_change_records(storage_id);
+-- 删除 directory_change_records 表的创建：该表已废弃
+-- 保留 operation_log_monitor_rules 的增量列索引创建
 ALTER TABLE operation_log_monitor_rules ADD COLUMN IF NOT EXISTS created_by INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE operation_log_monitor_rules ADD COLUMN IF NOT EXISTS organization_id INTEGER NOT NULL DEFAULT 1;
 CREATE INDEX IF NOT EXISTS idx_operation_log_monitor_rules_created_by ON operation_log_monitor_rules(created_by);
 CREATE INDEX IF NOT EXISTS idx_operation_log_monitor_rules_organization_id ON operation_log_monitor_rules(organization_id);
+
+-- ---------------------------------------------------------------------------
+-- 统一文件系统节点（目录 + 文件 合表）：高效混排/排序/分页的专用表
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS fs_nodes (
+    id SERIAL PRIMARY KEY,
+    storage_id INTEGER NOT NULL,
+    path VARCHAR(1024) NOT NULL,         -- 以 '/' 开头，不以 '/' 结尾
+    name VARCHAR(255) NOT NULL,          -- 基名（不含 '/')
+    is_dir BOOLEAN NOT NULL DEFAULT FALSE,
+    size_bytes BIGINT NOT NULL DEFAULT 0,
+    mime_type VARCHAR(255),
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE
+);
+-- 审计/隔离列
+ALTER TABLE fs_nodes ADD COLUMN IF NOT EXISTS created_by INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE fs_nodes ADD COLUMN IF NOT EXISTS organization_id INTEGER NOT NULL DEFAULT 1;
+CREATE INDEX IF NOT EXISTS idx_fs_nodes_created_by ON fs_nodes(created_by);
+CREATE INDEX IF NOT EXISTS idx_fs_nodes_organization_id ON fs_nodes(organization_id);
+
+-- 局部唯一索引（仅针对未软删除记录），避免重复 path
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes WHERE indexname = 'uq_fs_nodes_storage_path_active'
+    ) THEN
+        CREATE UNIQUE INDEX uq_fs_nodes_storage_path_active
+        ON fs_nodes(storage_id, path)
+        WHERE is_deleted = FALSE;
+    END IF;
+END $$;
+
+-- 常用查询索引
+CREATE INDEX IF NOT EXISTS idx_fs_nodes_storage_path ON fs_nodes(storage_id, path);
+CREATE INDEX IF NOT EXISTS idx_fs_nodes_storage_name ON fs_nodes(storage_id, name);
+CREATE INDEX IF NOT EXISTS idx_fs_nodes_storage_time ON fs_nodes(storage_id, create_time);
+CREATE INDEX IF NOT EXISTS idx_fs_nodes_is_dir ON fs_nodes(is_dir);

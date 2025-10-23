@@ -61,7 +61,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.development .env   # 可按需修改数据库、Redis、JWT、端口、时区等
 ```
-- 启动开发服务：`uvicorn app.main:app --reload`
+- 启动开发服务（确保使用 venv 的解释器）：
+  ```bash
+  # 推荐：用当前 venv 的 Python 调用 uvicorn 模块，避免命中全局 uvicorn 的 shebang
+  python -m uvicorn app.main:app --reload
+
+  # 或者显式使用 venv 下的 uvicorn 可执行文件
+  .venv/bin/uvicorn app.main:app --reload
+  ```
 - 健康检查：`curl http://127.0.0.1:8000/health`
 - 本地文件根目录（可选）：在 `.env` 配置 `LOCAL_FILE_ROOT`（示例：/tmp/asmrobotx-files 或 /data/asmrobotx-files）。若不存在存储源，将基于该目录自动创建“本地存储(默认)”。
 
@@ -76,7 +83,8 @@ docker compose --env-file .env.development up -d db redis
 ```bash
 # 可通过 APP_ACTIVE_PACKAGE 指定业务包（默认 system）
 export ENV_FILE=.env.development
-uvicorn app.main:app --reload
+# 推荐：确保使用 venv 的 Python 启动（避免全局 uvicorn 覆盖 venv）
+python -m uvicorn app.main:app --reload
 # 访问 http://127.0.0.1:8000/docs 查看自动文档
 ```
 
@@ -163,6 +171,28 @@ TIMEZONE=Asia/Shanghai
 ```
 
 详尽接口说明见 `docs/system/api/`。
+
+## 常见问题：uvicorn 未在虚拟环境中运行
+
+现象：`/api/v1/files/thumbnail` 返回关于 Pillow 的错误，或日志中出现类似：
+
+- `exe=/opt/homebrew/opt/python@3.11/bin/python3.11`（说明正在使用 Homebrew 的 Python，而非 venv）
+- `ModuleNotFoundError: No module named 'PIL'`
+
+原因：shell 中的 `uvicorn` 指向了全局安装（如 Homebrew）的可执行文件，其 shebang 指回全局 Python；即使已 `source .venv/bin/activate`，启动的服务进程也不在 venv 内。
+
+解决：
+- 始终用 venv 的 Python 启动：`python -m uvicorn app.main:app --reload`，或使用 `.venv/bin/uvicorn ...`
+- 启动前确认：
+  ```bash
+  which uvicorn   # 期望是 .../.venv/bin/uvicorn
+  which python    # 期望是 .../.venv/bin/python
+  python -c 'import sys; print(sys.executable)'
+  ```
+- zsh 下如命中过旧缓存：执行 `rehash`（bash: `hash -r`）。
+
+如果确需使用系统 Python 运行服务，请在同一个解释器上安装所需依赖，例如：
+`/opt/homebrew/opt/python@3.11/bin/python3.11 -m pip install Pillow==10.4.0`
 
 ## 后续扩展
 1. 完成 Alembic 迁移脚本，替代手工 SQL 变更

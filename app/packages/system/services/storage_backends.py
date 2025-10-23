@@ -239,8 +239,11 @@ class LocalBackend(StorageBackend):
         target = self._resolve(path)
         if not target.exists() or not target.is_file():
             raise AppException("文件不存在", HTTP_STATUS_NOT_FOUND)
-        f = open(target, "rb")
-        return StreamingResponse(f, media_type=_norm_mime(str(target)))
+        # 使用 FileResponse 以支持 Range 请求，便于视频/音频拖动进度
+        return FileResponse(
+            str(target),
+            media_type=_norm_mime(str(target)),
+        )
 
     def mkdir(self, *, parent: str, name: str) -> dict:
         parent_dir = self._resolve(parent)
@@ -297,6 +300,11 @@ class LocalBackend(StorageBackend):
                 raise AppException(f"目标已存在: {dst.name}", HTTP_STATUS_BAD_REQUEST)
             was_dir = src.is_dir()
             shutil.move(str(src), str(dst))
+            # 同步缩略图缓存
+            try:
+                self._move_local_thumbnails(src_rel=spath, dst_rel=self._rel(dst))
+            except Exception:
+                pass
         return create_response("文件/文件夹移动成功", None, HTTP_STATUS_OK)
 
     def copy(self, *, source_paths: List[str], destination_path: str) -> dict:
@@ -332,9 +340,100 @@ class LocalBackend(StorageBackend):
                 except (OSError, shutil.Error) as exc:
                     logger.exception("Local copy failed: %s", exc)
                     raise AppException("复制失败：文件不可读或目标不可写", HTTP_STATUS_BAD_REQUEST) from exc
+            # 同步缩略图缓存
+            try:
+                self._copy_local_thumbnails(src_rel=spath, dst_rel=self._rel(dst))
+            except Exception:
+                pass
         return create_response("文件/文件夹复制成功", None, HTTP_STATUS_OK)
 
+    # --------------
+    # thumbnails helpers (LOCAL)
+    # --------------
+    def _thumbs_base(self) -> Path:
+        return (self.root / ".thumbnails").resolve()
+
+    def _rel_to_parts(self, rel: str) -> tuple[str, str]:
+        rel_norm = rel.strip()
+        if rel_norm.startswith("/"):
+            rel_norm = rel_norm[1:]
+        parent = os.path.dirname(rel_norm)
+        name = os.path.basename(rel_norm.rstrip("/"))
+        return parent, name
+
+    def _copy_local_thumbnails(self, *, src_rel: str, dst_rel: str) -> None:
+        base = self._thumbs_base()
+        src_parent, src_name = self._rel_to_parts(src_rel)
+        dst_parent, dst_name = self._rel_to_parts(dst_rel)
+        src_path = (self.root / src_rel.lstrip("/")).resolve()
+        if src_path.is_dir():
+            src_th_dir = (base / src_parent / src_name).resolve()
+            dst_th_dir = (base / dst_parent / dst_name).resolve()
+            if src_th_dir.exists() and src_th_dir.is_dir():
+                dst_th_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.copytree(src_th_dir, dst_th_dir, dirs_exist_ok=True)
+                except Exception:
+                    for root_dir, _, files in os.walk(src_th_dir):
+                        rel_sub = Path(root_dir).resolve().relative_to(src_th_dir)
+                        cur_dst = (dst_th_dir / rel_sub).resolve()
+                        cur_dst.mkdir(parents=True, exist_ok=True)
+                        for f in files:
+                            shutil.copy2(Path(root_dir) / f, cur_dst / f)
+        else:
+            src_th_dir = (base / src_parent).resolve()
+            dst_th_dir = (base / dst_parent).resolve()
+            if src_th_dir.exists() and src_th_dir.is_dir():
+                dst_th_dir.mkdir(parents=True, exist_ok=True)
+                stem = Path(src_name).stem
+                patterns = ["*.webp", "*.png", "*.jpg", "*.jpeg"]
+                for pat in patterns:
+                    for th in src_th_dir.glob(f"{stem}__w*{pat[1:]}"):
+                        shutil.copy2(th, dst_th_dir / th.name)
+
+    def _move_local_thumbnails(self, *, src_rel: str, dst_rel: str) -> None:
+        base = self._thumbs_base()
+        src_parent, src_name = self._rel_to_parts(src_rel)
+        dst_parent, dst_name = self._rel_to_parts(dst_rel)
+        src_path = (self.root / src_rel.lstrip("/")).resolve()
+        if src_path.is_dir():
+            src_th_dir = (base / src_parent / src_name).resolve()
+            dst_th_dir = (base / dst_parent / dst_name).resolve()
+            if src_th_dir.exists() and src_th_dir.is_dir():
+                dst_th_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.move(str(src_th_dir), str(dst_th_dir))
+                except Exception:
+                    for root_dir, _, files in os.walk(src_th_dir):
+                        rel_sub = Path(root_dir).resolve().relative_to(src_th_dir)
+                        cur_dst = (dst_th_dir / rel_sub).resolve()
+                        cur_dst.mkdir(parents=True, exist_ok=True)
+                        for f in files:
+                            try:
+                                shutil.move(str(Path(root_dir) / f), str(cur_dst / f))
+                            except Exception:
+                                pass
+                    try:
+                        shutil.rmtree(src_th_dir, ignore_errors=True)
+                    except Exception:
+                        pass
+        else:
+            src_th_dir = (base / src_parent).resolve()
+            dst_th_dir = (base / dst_parent).resolve()
+            if src_th_dir.exists() and src_th_dir.is_dir():
+                dst_th_dir.mkdir(parents=True, exist_ok=True)
+                stem = Path(src_name).stem
+                for th in list(src_th_dir.glob(f"{stem}__w*.webp")) + list(src_th_dir.glob(f"{stem}__w*.png")) + list(src_th_dir.glob(f"{stem}__w*.jpg")) + list(src_th_dir.glob(f"{stem}__w*.jpeg")):
+                    try:
+                        shutil.move(str(th), str(dst_th_dir / th.name))
+                    except Exception:
+                        pass
+
     def delete(self, *, paths: List[str]) -> dict:
+        try:
+            logger.info("local.delete paths=%s", paths)
+        except Exception:
+            pass
         for rel in paths:
             target = self._resolve(rel)
             if not target.exists():

@@ -3,6 +3,8 @@
 import logging
 import logging.config
 import sys
+import json
+from contextvars import ContextVar
 from typing import Optional
 
 from .config import get_settings
@@ -45,12 +47,44 @@ class ColorFormatter(logging.Formatter):
         return f"{color}{message}{self.RESET}"
 
 
+class JsonFormatter(logging.Formatter):
+    """Structured JSON formatter for logs."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, datefmt=None),
+            "logger": record.name,
+            "level": record.levelname,
+            "msg": record.getMessage(),
+            "request_id": getattr(record, "request_id", None),
+        }
+        # Attach exception info if present
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+_request_id_ctx: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
+
+
+class RequestIdFilter(logging.Filter):
+    """Injects request_id from contextvars into every LogRecord."""
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        rid = _request_id_ctx.get()
+        setattr(record, "request_id", rid)
+        return True
+
+
 def setup_logging() -> None:
     """初始化日志系统，确保项目所有模块使用统一的输出格式与级别。"""
     settings = get_settings()
     log_dir = settings.log_directory
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file_path = settings.log_file_path
+
+    json_enabled = bool(getattr(settings, "log_json", False))
+    formatter_name = "json" if json_enabled else "standard"
 
     logging_config = {
         "version": 1,
@@ -63,23 +97,33 @@ def setup_logging() -> None:
             "plain": {
                 "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
             },
+            "json": {
+                "()": "app.packages.system.core.logger.JsonFormatter",
+            },
         },
         "handlers": {
             "default": {
                 "level": settings.log_level,
                 "class": "logging.StreamHandler",
-                "formatter": "standard",
+                "formatter": formatter_name,
+                "filters": ["request_id"],
             },
             "file": {
                 "level": settings.log_level,
                 "class": "logging.handlers.TimedRotatingFileHandler",
-                "formatter": "plain",
+                "formatter": formatter_name if json_enabled else "plain",
                 "filename": str(log_file_path),
                 "when": "midnight",
                 "backupCount": 14,
                 "encoding": "utf-8",
                 "delay": True,
+                "filters": ["request_id"],
             },
+        },
+        "filters": {
+            "request_id": {
+                "()": "app.packages.system.core.logger.RequestIdFilter",
+            }
         },
         "loggers": {
             "uvicorn": {
@@ -112,3 +156,10 @@ def setup_logging() -> None:
 
 
 logger = logging.getLogger("app")
+
+# Expose request id context helpers
+def set_request_id(request_id: Optional[str]) -> None:
+    _request_id_ctx.set(request_id)
+
+def get_request_id() -> Optional[str]:
+    return _request_id_ctx.get()

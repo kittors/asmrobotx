@@ -9,8 +9,8 @@
 - `limit`（int, 1–500，默认 50）：每页条目数
 - `cursor`（string，可选）：分页游标（后端返回的不透明字符串）
 - `include`（dirs|files|all，默认 all）：分页分区选择
-- `orderBy`（name|size|time，默认 name）：排序字段（仅 `files` 分页有效）
-- `order`（asc|desc，默认 asc）：排序方向（仅 `files` 分页有效）
+- `orderBy`（name|size|time，默认 name）：排序字段（从 v1.1 起，`include=all` 时基于统一表 fs_nodes 扁平混排并按该字段全局排序；`size` 仅对文件有效）
+- `order`（asc|desc，默认 asc）：排序方向（`files` 与 `directories` 均有效）
 - `countOnly`（bool，默认 false）：仅返回数量统计（不返回 items）
 
 兼容参数：保留原有 `fileType`（image/document/spreadsheet/pdf/markdown/all）与 `search` 的过滤语义。
@@ -46,7 +46,7 @@
 
 - `directories`：仅返回当前目录“直接子目录”（不会返回深层目录）。
 - `files`：仅返回当前目录下的文件。
-- `items`：为兼容旧前端，将当前页的目录与文件简单拼接（目录在前，文件在后）。
+- `items`：从 v1.1 起为“统一混排结果”（来自统一表 fs_nodes），将目录与文件按照 `orderBy/order` 全局排序返回；仍保留 `directories/files` 字段供旧前端使用。
 
 > 旧结构（无分页参数）仍然返回 `{ currentPath, items, rootPath? }`，保证旧页面可用；新前端按分页参数接入后可获得更好的性能体验。
 

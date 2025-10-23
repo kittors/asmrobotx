@@ -21,6 +21,7 @@ http_exception_handler = package.http_exception_handler
 generic_exception_handler = package.generic_exception_handler
 from app.packages.system.core.security import consume_refreshed_token
 from app.middleware.datascope import DataScopeMiddleware
+from app.middleware.request_id import RequestIdMiddleware
 
 app = FastAPI(title=settings.project_name, debug=settings.debug)
 
@@ -34,6 +35,7 @@ app.add_middleware(
 )
 
 app.add_middleware(DataScopeMiddleware)
+app.add_middleware(RequestIdMiddleware)
 
 class AccessTokenHeaderMiddleware(BaseHTTPMiddleware):
     """将当前请求上下文中的刷新令牌附加到响应头中。

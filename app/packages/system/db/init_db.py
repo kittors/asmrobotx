@@ -27,8 +27,7 @@ from app.packages.system.models.user import User
 from app.packages.system.crud.storage_config import storage_config_crud
 from app.packages.system.models.storage import StorageConfig
 from app.packages.system.models.file_record import FileRecord  # noqa: F401 - ensure table creation in tests
-from app.packages.system.models.directory_entry import DirectoryEntry  # noqa: F401 - ensure table creation in tests
-from app.packages.system.models.directory_change_record import DirectoryChangeRecord  # noqa: F401 - ensure table creation in tests
+from app.packages.system.models.fs_node import FsNode  # noqa: F401 - ensure table creation in tests
 from app.packages.system.models.access_control import AccessControlItem
 
 logger = logging.getLogger(__name__)
