@@ -70,6 +70,7 @@ docker compose --env-file .env.development up --build
 - 健康检查：`curl http://127.0.0.1:8000/health`
 - API 文档：访问 http://127.0.0.1:8000/docs
 - 端口：宿主机监听 `APP_PORT`（默认 8000），容器固定监听 8000（compose 端口映射 `${APP_PORT}:8000`）。
+ - 环境变量：开发覆盖文件已将数据库和 Redis 指向容器内服务名（`db:5432` / `redis:6379`），并禁用容器内对 `.env*` 的再次加载，避免 `localhost:5433` 之类配置干扰。
 
 ## 依赖管理（无需主机安装 uv）
 
@@ -96,9 +97,9 @@ docker compose --env-file .env.development up --build
 
 4) 在容器中运行测试
 ```bash
-docker compose run --rm app uv run pytest -q
+docker compose run --rm app sh -c "uv sync --group dev && uv run pytest -q"
 ```
-- 或已启动情况下：`docker compose exec app uv run pytest -q`
+- 或已启动情况下：`docker compose exec app sh -c "uv sync --group dev && uv run pytest -q"`
 
 5) 仅启动依赖（可选）
 ```bash

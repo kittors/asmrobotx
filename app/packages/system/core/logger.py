@@ -4,13 +4,29 @@ import logging
 import logging.config
 import sys
 import json
+from datetime import datetime
 from contextvars import ContextVar
 from typing import Optional
 
 from .config import get_settings
 
 
-class ColorFormatter(logging.Formatter):
+class _TZFormatter(logging.Formatter):
+    """Formatter that renders timestamps in Settings.timezone.
+
+    Falls back to ISO-8601 with milliseconds when no datefmt is provided.
+    """
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:  # noqa: D401
+        tz = get_settings().timezone_info
+        dt = datetime.fromtimestamp(record.created, tz)
+        if datefmt:
+            return dt.strftime(datefmt)
+        # e.g. 2025-10-23 16:22:32.123+08:00
+        return dt.isoformat(sep=" ", timespec="milliseconds")
+
+
+class ColorFormatter(_TZFormatter):
     """ANSI 彩色格式化器：根据不同日志级别渲染不同颜色，便于快速辨识。"""
 
     RESET = "\033[0m"
@@ -47,7 +63,7 @@ class ColorFormatter(logging.Formatter):
         return f"{color}{message}{self.RESET}"
 
 
-class JsonFormatter(logging.Formatter):
+class JsonFormatter(_TZFormatter):
     """Structured JSON formatter for logs."""
 
     def format(self, record: logging.LogRecord) -> str:
